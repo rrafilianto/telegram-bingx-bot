@@ -1,0 +1,40 @@
+{
+  "name": "telegram-bingx-bot",
+  "version": "1.0.0",
+  "description": "24/7 BingX USDT-M Perpetual Futures Trading & Monitoring Bot with Telegram Integration",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs",
+    "pm2:logs": "pm2 logs bingx-telegram-bot"
+  },
+  "keywords": [
+    "bingx",
+    "trading-bot",
+    "telegram-bot",
+    "futures",
+    "pm2"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "grammy": "^1.35.0",
+    "json-bigint": "^1.0.0",
+    "pako": "^2.1.0",
+    "ws": "^8.18.1"
+  },
+  "devDependencies": {
+    "@types/json-bigint": "^1.0.4",
+    "@types/node": "^22.13.9",
+    "@types/pako": "^2.0.4",
+    "@types/ws": "^8.5.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
