@@ -43,44 +43,111 @@ export function evaluateStrategy(
     }
   }
 
-  // 2. Analisis Struktur Harga 15 Menit (Primary Setup)
-  if (currentPrice > ta15m.ema50 && ta15m.ema9 > ta15m.ema21) {
-    longScore += 25;
-    reasons.push("Struktur 15m Bullish (EMA9 di atas EMA21)");
-  } else if (currentPrice < ta15m.ema50 && ta15m.ema9 < ta15m.ema21) {
-    shortScore += 25;
-    reasons.push("Struktur 15m Bearish (EMA9 di bawah EMA21)");
+  // 2. Analisis Struktur Tren 15 Menit
+  if (currentPrice > ta15m.ema50 && ta15m.ema21 > ta15m.ema50) {
+    longScore += 20;
+    reasons.push("Struktur 15m Uptrend (EMA21 > EMA50)");
+  } else if (currentPrice < ta15m.ema50 && ta15m.ema21 < ta15m.ema50) {
+    shortScore += 20;
+    reasons.push("Struktur 15m Downtrend (EMA21 < EMA50)");
   }
 
-  // 3. Momentum RSI 15m
-  if (ta15m.rsi14 >= 42 && ta15m.rsi14 <= 65) {
-    longScore += 25;
-    reasons.push(`RSI 15m Sehat (${ta15m.rsi14.toFixed(1)})`);
-  } else if (ta15m.rsi14 >= 35 && ta15m.rsi14 <= 58) {
-    shortScore += 25;
-    reasons.push(`RSI 15m Melemah (${ta15m.rsi14.toFixed(1)})`);
+  // 3. Konfirmasi Pullback & Rejection 15 Menit (Inti Strategi Pullback)
+  // LONG PULLBACK:
+  // - Low 3 candle terakhir sempat koreksi ke area EMA21/EMA50
+  // - Harga saat ini bertahan di atas EMA21 (tidak jebol)
+  // - Harga tidak overextended di atas EMA21 (< 2.5% dari EMA)
+  // - Ada candle pantulan (rejection)
+  const isLongPullback =
+    ta15m.recentLow3 <= ta15m.ema21 * 1.008 &&
+    currentPrice >= ta15m.ema21 * 0.995 &&
+    (currentPrice - ta15m.ema21) / ta15m.ema21 <= 0.025;
+
+  const isLongRejection =
+    currentPrice > ta15m.lastCandle.open ||
+    ta15m.prevCandle.close > ta15m.prevCandle.open;
+
+  if (isLongPullback && isLongRejection) {
+    longScore += 30;
+    reasons.push("Pullback 15m Terkonfirmasi (Memantul di area EMA21/EMA50)");
+  } else if ((currentPrice - ta15m.ema21) / ta15m.ema21 > 0.035) {
+    // Penalti jika harga sudah terbang terlalu jauh (menghindari beli di pucuk)
+    longScore -= 25;
   }
 
-  // 4. Momentum MACD 15m
-  if (ta15m.macd.histogram > 0 && ta15m.macd.macdLine > ta15m.macd.signalLine) {
+  // SHORT PULLBACK:
+  // - High 3 candle terakhir sempat retest naik ke area EMA21/EMA50
+  // - Harga saat ini tertahan di bawah EMA21
+  // - Harga tidak overextended ke bawah (< 2.5% dari EMA)
+  // - Ada candle penolakan ke bawah
+  const isShortPullback =
+    ta15m.recentHigh3 >= ta15m.ema21 * 0.992 &&
+    currentPrice <= ta15m.ema21 * 1.005 &&
+    (ta15m.ema21 - currentPrice) / ta15m.ema21 <= 0.025;
+
+  const isShortRejection =
+    currentPrice < ta15m.lastCandle.open ||
+    ta15m.prevCandle.close < ta15m.prevCandle.open;
+
+  if (isShortPullback && isShortRejection) {
+    shortScore += 30;
+    reasons.push("Pullback 15m Terkonfirmasi (Tertolak di area EMA21/EMA50)");
+  } else if ((ta15m.ema21 - currentPrice) / ta15m.ema21 > 0.035) {
+    // Penalti jika harga sudah dump terlalu jauh (menghindari short di dasar)
+    shortScore -= 25;
+  }
+
+  // 4. Momentum RSI 15m Pasca Koreksi
+  if (ta15m.rsi14 >= 38 && ta15m.rsi14 <= 58) {
     longScore += 15;
-    reasons.push("MACD 15m Bullish Crossover");
-  } else if (ta15m.macd.histogram < 0 && ta15m.macd.macdLine < ta15m.macd.signalLine) {
-    shortScore += 15;
-    reasons.push("MACD 15m Bearish Crossover");
+    reasons.push(`RSI 15m Rebound Sehat (${ta15m.rsi14.toFixed(1)})`);
+  } else if (ta15m.rsi14 > 68) {
+    longScore -= 25; // Overbought, jangan beli
   }
 
-  // 5. Filter Sentimen Pasar
+  if (ta15m.rsi14 >= 42 && ta15m.rsi14 <= 62) {
+    shortScore += 15;
+    reasons.push(`RSI 15m Retest Sehat (${ta15m.rsi14.toFixed(1)})`);
+  } else if (ta15m.rsi14 < 32) {
+    shortScore -= 25; // Oversold, jangan short
+  }
+
+  // 5. Momentum MACD 15m
+  if (ta15m.macd.histogram > 0 || ta15m.macd.macdLine > ta15m.macd.signalLine) {
+    longScore += 10;
+    reasons.push("MACD 15m Positif");
+  }
+  if (ta15m.macd.histogram < 0 || ta15m.macd.macdLine < ta15m.macd.signalLine) {
+    shortScore += 10;
+    reasons.push("MACD 15m Negatif");
+  }
+
+  // 6. Filter Sentimen Pasar
   if (sentiment.isExtremeGreed) {
-    longScore -= 20; // Waspada koreksi tajam jika pasar terlalu serakah
+    longScore -= 15;
   }
   if (sentiment.isExtremeFear) {
-    shortScore -= 20; // Waspada rebound tajam jika pasar terlalu panik
+    shortScore -= 15;
   }
 
-  const minScoreThreshold = 65;
-  const slDistance = atr * config.atrMultiplierSl;
-  const tpDistance = slDistance * config.rrRatio;
+  const minScoreThreshold = 70;
+
+  // 7. Kalkulasi Stop Loss dengan Safety Bracket
+  let slDistance = atr * config.atrMultiplierSl;
+  let slPercent = (slDistance / currentPrice) * 100;
+
+  // Bracket Bawah: Jarak SL minimal (misal 1.5%) agar koin besar tidak kena noise
+  if (slPercent < config.minSlPercent) {
+    slDistance = currentPrice * (config.minSlPercent / 100);
+    slPercent = config.minSlPercent;
+    reasons.push(`SL diperlebar ke batas minimal ${config.minSlPercent}%`);
+  }
+
+  // Bracket Atas: Jika koin terlalu liar (jarak SL > maxSlPercent, misal 4.5%),
+  // batalkan sinyal karena leverage 10x tidak aman menahan volatilitas ini
+  if (slPercent > config.maxSlPercent) {
+    return null;
+  }
 
   // Hitung callback rate dinamis berdasarkan rasio ATR terhadap harga koin
   const rawCallback = (atr * config.trailingAtrMultiplier) / currentPrice;

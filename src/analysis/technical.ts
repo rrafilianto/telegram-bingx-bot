@@ -19,6 +19,10 @@ export interface TechnicalIndicators {
     lower: number;
   };
   trend: "BULLISH" | "BEARISH" | "NEUTRAL";
+  lastCandle: KlineItem;
+  prevCandle: KlineItem;
+  recentLow3: number;
+  recentHigh3: number;
 }
 
 /**
@@ -199,6 +203,12 @@ export function analyzeKlines(klines: KlineItem[]): TechnicalIndicators | null {
     trend = "BEARISH";
   }
 
+  const lastCandle = klines[klines.length - 1];
+  const prevCandle = klines[klines.length - 2] || lastCandle;
+  const recent3 = klines.slice(Math.max(0, klines.length - 3));
+  const recentLow3 = Math.min(...recent3.map((k) => k.low));
+  const recentHigh3 = Math.max(...recent3.map((k) => k.high));
+
   return {
     currentPrice,
     rsi14,
@@ -210,5 +220,9 @@ export function analyzeKlines(klines: KlineItem[]): TechnicalIndicators | null {
     atr14,
     bollingerBands: bb,
     trend,
+    lastCandle,
+    prevCandle,
+    recentLow3,
+    recentHigh3,
   };
 }

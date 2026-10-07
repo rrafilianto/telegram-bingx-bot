@@ -17,6 +17,7 @@ export interface BotConfig {
   maxConcurrentPositions: number;
   riskPerTradePercent: number;
   maxDailyDrawdownPercent: number;
+  maxPositionNotionalPercent: number;
   cooldownMinutesAfterLoss: number;
   
   // Scanner & Strategy Parameters
@@ -27,6 +28,8 @@ export interface BotConfig {
   timeframeTrend: string;
   rrRatio: number;
   atrMultiplierSl: number;
+  minSlPercent: number;
+  maxSlPercent: number;
   breakEvenTriggerR: number;
   trailingStopPercent: number;
   trailingActivationR: number;
@@ -63,6 +66,7 @@ export const config: BotConfig = {
   maxConcurrentPositions: parseEnvNumber("MAX_CONCURRENT_POSITIONS", 3),
   riskPerTradePercent: parseEnvNumber("RISK_PER_TRADE_PERCENT", 2.0),
   maxDailyDrawdownPercent: parseEnvNumber("MAX_DAILY_DRAWDOWN_PERCENT", 5.0),
+  maxPositionNotionalPercent: parseEnvNumber("MAX_POSITION_NOTIONAL_PERCENT", 100),
   cooldownMinutesAfterLoss: parseEnvNumber("COOLDOWN_MINUTES_AFTER_LOSS", 45),
 
   scanIntervalMinutes: parseEnvNumber("SCAN_INTERVAL_MINUTES", 5),
@@ -71,7 +75,9 @@ export const config: BotConfig = {
   timeframePrimary: parseEnvString("TIMEFRAME_PRIMARY", "15m"),
   timeframeTrend: parseEnvString("TIMEFRAME_TREND", "1h"),
   rrRatio: parseEnvNumber("RR_RATIO", 1.5),
-  atrMultiplierSl: parseEnvNumber("ATR_MULTIPLIER_SL", 1.5),
+  atrMultiplierSl: parseEnvNumber("ATR_MULTIPLIER_SL", 2.5),
+  minSlPercent: parseEnvNumber("MIN_SL_PERCENT", 1.5),
+  maxSlPercent: parseEnvNumber("MAX_SL_PERCENT", 4.5),
   breakEvenTriggerR: parseEnvNumber("BREAK_EVEN_TRIGGER_R", 1.0),
   trailingStopPercent: parseEnvNumber("TRAILING_STOP_PERCENT", 1.0),
   trailingActivationR: parseEnvNumber("TRAILING_ACTIVATION_R", 1.5),

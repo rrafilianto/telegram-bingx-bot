@@ -95,6 +95,16 @@ export async function validateAndSizeTrade(
   }
 
   let theoreticalQty = dollarRisk / priceDistance;
+
+  // Batasi Maksimal Notional Value (Cap ukuran kontrak terhadap Equity)
+  const maxNotionalUsdt = (equity * config.maxPositionNotionalPercent) / 100;
+  if (maxNotionalUsdt > 0 && theoreticalQty * signal.entryPrice > maxNotionalUsdt) {
+    theoreticalQty = maxNotionalUsdt / signal.entryPrice;
+    logger.info(
+      `Ukuran posisi ${signal.symbol} dibatasi ke batas maksimal notional $${maxNotionalUsdt.toFixed(2)} (${config.maxPositionNotionalPercent}% Equity).`
+    );
+  }
+
   let formattedQty = roundToPrecision(theoreticalQty, qtyPrecision);
 
   if (formattedQty < minQty) {
