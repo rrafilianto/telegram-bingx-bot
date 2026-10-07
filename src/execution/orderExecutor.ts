@@ -59,11 +59,13 @@ export async function executeTrade(
     // Bersihkan cache posisi agar pengecekan posisi berikutnya segera membaca data baru dari BingX
     clearPositionsCache();
 
+    const realEntryPrice = parseFloat((orderRes as any)?.order?.avgPrice) || sizing.formattedPrice;
+
     // 4. Simpan posisi ke tracker internal
     storage.saveManagedPosition({
       symbol: signal.symbol,
       positionSide: signal.positionSide,
-      entryPrice: sizing.formattedPrice,
+      entryPrice: realEntryPrice > 0 ? realEntryPrice : sizing.formattedPrice,
       quantity: sizing.formattedQuantity,
       leverage: config.defaultLeverage,
       initialSl: sizing.formattedSl,

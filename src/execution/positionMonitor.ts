@@ -3,6 +3,7 @@ import {
   placeStopLossOrder,
   cancelAllOpenOrders,
   getAllOrders,
+  getLatestPositionHistory,
 } from "../bingx/trade.js";
 import { config } from "../config.js";
 import { storage, ManagedPosition } from "../utils/storage.js";
@@ -32,7 +33,9 @@ export async function checkPositions(): Promise<void> {
     for (const [symbol, managed] of Object.entries(managedMap)) {
       if (!livePositionMap.has(symbol)) {
         // Ambil riwayat order terbaru dari BingX untuk memeriksa apakah memang ada order penutupan
-        const recentOrders = await getAllOrders(symbol, 10);
+        // Gunakan startTime dari waktu posisi dibuka (dengan buffer 60 detik) dan limit lebih besar (50)
+        const orderStartTime = managed.openedAt > 0 ? managed.openedAt - 60000 : undefined;
+        const recentOrders = await getAllOrders(symbol, 50, orderStartTime);
         const closeSide = managed.positionSide === "LONG" ? "SELL" : "BUY";
 
         // Cari order penutupan yang berstatus FILLED setelah waktu pembukaan posisi
@@ -42,7 +45,7 @@ export async function checkPositions(): Promise<void> {
               o.status === "FILLED" &&
               (o.side === closeSide || o.reduceOnly === true) &&
               (o.positionSide === managed.positionSide || o.positionSide === "BOTH") &&
-              (o.time >= (managed.openedAt - 5000) || o.updateTime >= (managed.openedAt - 5000))
+              (o.time >= (managed.openedAt - 30000) || o.updateTime >= (managed.openedAt - 30000))
           )
           .sort((a, b) => (b.updateTime || b.time || 0) - (a.updateTime || a.time || 0))[0];
 
@@ -58,7 +61,9 @@ export async function checkPositions(): Promise<void> {
         // Batalkan order sisa jika ada
         await cancelAllOpenOrders(symbol);
 
-        // Ambil riwayat order terbaru dari BingX untuk mendapatkan eksekusi riil
+        // Ambil data penutupan resmi dari buku besar posisi BingX (positionHistory)
+        const closedPosRecord = await getLatestPositionHistory(symbol);
+
         let exitPrice = managed.positionSide === "LONG"
           ? (managed.lowestPrice || managed.entryPrice)
           : (managed.highestPrice || managed.entryPrice);
@@ -67,11 +72,21 @@ export async function checkPositions(): Promise<void> {
         let reason: "TAKE_PROFIT" | "STOP_LOSS" | "BREAK_EVEN" | "TRAILING_TP" = "TAKE_PROFIT";
         let isWin = false;
 
-        if (filledCloseOrder) {
+        // Prioritas 1: Gunakan data resmi dari positionHistory BingX jika cocok
+        if (
+          closedPosRecord &&
+          closedPosRecord.positionSide === managed.positionSide &&
+          closedPosRecord.updateTime >= (managed.openedAt - 30000)
+        ) {
+          const recClosePrice = parseFloat(closedPosRecord.avgClosePrice);
+          if (recClosePrice > 0) exitPrice = recClosePrice;
+          const recRealisedProfit = parseFloat(closedPosRecord.realisedProfit);
+          if (!isNaN(recRealisedProfit)) pnlUsdt = recRealisedProfit;
+        } else if (filledCloseOrder) {
+          // Prioritas 2: Gunakan data dari filled close order
           const filledAvgPrice = parseFloat(filledCloseOrder.avgPrice) || 0;
           if (filledAvgPrice > 0) exitPrice = filledAvgPrice;
 
-          // BingX menyertakan field profit langsung pada order penutupan
           const parsedProfit = parseFloat(filledCloseOrder.profit);
           if (!isNaN(parsedProfit) && filledCloseOrder.profit !== "") {
             pnlUsdt = parsedProfit;
@@ -82,14 +97,22 @@ export async function checkPositions(): Promise<void> {
               pnlUsdt = (managed.entryPrice - exitPrice) * managed.quantity;
             }
           }
+        } else {
+          // Prioritas 3: Estimasi fallback
+          if (managed.positionSide === "LONG") {
+            pnlUsdt = (exitPrice - managed.entryPrice) * managed.quantity;
+          } else {
+            pnlUsdt = (managed.entryPrice - exitPrice) * managed.quantity;
+          }
+        }
 
-          // Hitung persentase PnL
-          const margin = (managed.entryPrice * managed.quantity) / (managed.leverage || 10);
-          pnlPercent = margin > 0 ? (pnlUsdt / margin) * 100 : 0;
+        // Hitung persentase PnL
+        const margin = (managed.entryPrice * managed.quantity) / (managed.leverage || 10);
+        pnlPercent = margin > 0 ? (pnlUsdt / margin) * 100 : 0;
+        isWin = pnlUsdt >= 0;
 
-          isWin = pnlUsdt >= 0;
-
-          // Tentukan trigger penutupan berdasarkan jenis order sebenarnya
+        // Tentukan trigger penutupan berdasarkan jenis order sebenarnya
+        if (filledCloseOrder) {
           if (filledCloseOrder.type === "STOP_MARKET" || filledCloseOrder.type === "STOP") {
             if (managed.isBreakEvenApplied && Math.abs(pnlPercent) < 2) {
               reason = "BREAK_EVEN";
@@ -110,15 +133,6 @@ export async function checkPositions(): Promise<void> {
             reason = isWin ? "TAKE_PROFIT" : "STOP_LOSS";
           }
         } else {
-          // Fallback jika API riwayat tidak mengembalikan order
-          if (managed.positionSide === "LONG") {
-            pnlUsdt = (exitPrice - managed.entryPrice) * managed.quantity;
-          } else {
-            pnlUsdt = (managed.entryPrice - exitPrice) * managed.quantity;
-          }
-          const margin = (managed.entryPrice * managed.quantity) / (managed.leverage || 10);
-          pnlPercent = margin > 0 ? (pnlUsdt / margin) * 100 : 0;
-          isWin = pnlUsdt >= 0;
           reason = isWin
             ? managed.isBreakEvenApplied && Math.abs(pnlPercent) < 2
               ? "BREAK_EVEN"
@@ -187,6 +201,12 @@ export async function checkPositions(): Promise<void> {
           openedAt: Date.now(),
         };
         storage.saveManagedPosition(managed);
+      } else {
+        // Sinkronkan harga entry riil dari eksekusi bursa jika tersedia
+        const realEntry = parseFloat(livePos.avgPrice) || parseFloat(livePos.entryPrice) || 0;
+        if (realEntry > 0 && Math.abs(managed.entryPrice - realEntry) > 0.0001) {
+          managed.entryPrice = realEntry;
+        }
       }
 
       // Update harga tertinggi & terendah yang pernah dicapai

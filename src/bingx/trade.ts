@@ -195,12 +195,20 @@ export interface SwapOrder {
   reduceOnly?: boolean;
 }
 
-export async function getAllOrders(symbol: string, limit = 10): Promise<SwapOrder[]> {
+export async function getAllOrders(
+  symbol: string,
+  limit = 50,
+  startTime?: number
+): Promise<SwapOrder[]> {
   try {
+    const params: Record<string, unknown> = { symbol, limit };
+    if (startTime && startTime > 0) {
+      params.startTime = startTime;
+    }
     const data = await bingxSignedRequest<{ orders?: SwapOrder[] } | SwapOrder[]>(
       "GET",
       "/openApi/swap/v2/trade/allOrders",
-      { symbol, limit }
+      params
     );
     if (data && Array.isArray((data as any).orders)) {
       return (data as any).orders;
@@ -212,6 +220,48 @@ export async function getAllOrders(symbol: string, limit = 10): Promise<SwapOrde
   } catch (err) {
     logger.debug(`Gagal mengambil allOrders untuk ${symbol}:`, err);
     return [];
+  }
+}
+
+export interface ClosedPositionRecord {
+  positionId: string;
+  symbol: string;
+  isolated: boolean;
+  positionSide: "LONG" | "SHORT";
+  openTime: number;
+  updateTime: number;
+  avgPrice: string;
+  avgClosePrice: string;
+  realisedProfit: string;
+  netProfit: string;
+  positionAmt: string;
+  closePositionAmt: string;
+  leverage: number;
+}
+
+export async function getLatestPositionHistory(
+  symbol: string
+): Promise<ClosedPositionRecord | null> {
+  try {
+    const now = Date.now();
+    const data = await bingxSignedRequest<{ positionHistory?: ClosedPositionRecord[] }>(
+      "GET",
+      "/openApi/swap/v1/trade/positionHistory",
+      {
+        symbol,
+        startTs: now - 7 * 24 * 3600 * 1000,
+        endTs: now,
+        pageSize: 5,
+      }
+    );
+    const list = data?.positionHistory;
+    if (Array.isArray(list) && list.length > 0) {
+      return list[0];
+    }
+    return null;
+  } catch (err) {
+    logger.debug(`Gagal mengambil positionHistory untuk ${symbol}:`, err);
+    return null;
   }
 }
 
