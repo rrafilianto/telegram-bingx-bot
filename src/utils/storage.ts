@@ -18,6 +18,7 @@ export interface ManagedPosition {
   highestPrice: number;
   lowestPrice: number;
   openedAt: number;
+  closePendingAttempts?: number;
 }
 
 export interface TradeRecord {
