@@ -74,7 +74,7 @@ export function registerBotCommands(bot: Bot) {
       `• Total Trade: ${daily.tradesCount} (${daily.winCount} Menang / ${daily.lossCount} Kalah)\n` +
       `• Win Rate: ${winRate}%\n` +
       `• Realized PnL (Gross): ${grossSign}$${daily.realizedPnl.toFixed(2)}\n` +
-      `• Net Profit (Bersih): <b>${netSign}$${finalNet.toFixed(2)}</b>`;
+      `• Net Profit (Bersih): ${finalNet >= 0 ? "🟢" : "🔴"} <b>${netSign}$${finalNet.toFixed(2)}</b>`;
 
     await ctx.reply(text, { parse_mode: "HTML" });
   });
@@ -99,7 +99,7 @@ export function registerBotCommands(bot: Bot) {
         `• <b>Total Equity:</b> $${equity.toFixed(2)} USDT\n` +
         `• <b>Saldo Dompet:</b> $${walletBal.toFixed(2)} USDT\n` +
         `• <b>Margin Tersedia:</b> $${available.toFixed(2)} USDT\n` +
-        `• <b>Floating PnL:</b> <b>${pnlSign}$${unPnl.toFixed(2)} USDT</b>`;
+        `• <b>Floating PnL:</b> ${unPnl >= 0 ? "🟢" : "🔴"} <b>${pnlSign}$${unPnl.toFixed(2)} USDT</b>`;
 
       await ctx.reply(text, { parse_mode: "HTML" });
     } catch (err: any) {
@@ -127,19 +127,30 @@ export function registerBotCommands(bot: Bot) {
         const mark = parseFloat(pos.markPrice) || 0;
         const unPnl = parseFloat(pos.unrealizedProfit) || 0;
         const pnlSign = unPnl >= 0 ? "+" : "";
+        const pnlIcon = unPnl >= 0 ? "🟢" : "🔴";
         const liq = parseFloat(String(pos.liquidationPrice)) || 0;
         const marginMode = pos.marginType || (pos.isolated ? "ISOLATED" : "CROSSED");
 
         const managed = storage.getManagedPosition(pos.symbol);
         const slText = managed && (managed.currentSl || managed.initialSl)
-          ? `$${managed.currentSl || managed.initialSl}${managed.isBreakEvenApplied ? " (BE)" : ""}`
+          ? `$${managed.currentSl || managed.initialSl}`
           : "-";
+
+        const beStatus = managed
+          ? (managed.isBreakEvenApplied ? "✅ Sudah Aktif" : "⏳ Belum Aktif")
+          : "-";
+
         let tpText = "-";
+        let trailingStatus = "-";
         if (managed && managed.trailingActivationPrice && managed.trailingCallbackRate) {
           const cb = (managed.trailingCallbackRate * 100).toFixed(1);
-          tpText = `Trailing (Aktif $${managed.trailingActivationPrice}, CB ${cb}%)${managed.isTrailingActive ? " 🚀 RUNNING" : ""}`;
+          tpText = `Trailing Stop (CB ${cb}%)`;
+          trailingStatus = managed.isTrailingActive
+            ? "🚀 Sudah Aktif (Running)"
+            : `⏳ Belum Aktif (Target $${managed.trailingActivationPrice})`;
         } else if (managed && managed.initialTp) {
           tpText = `$${managed.initialTp}`;
+          trailingStatus = "❌ Tidak Digunakan (Fixed TP)";
         }
 
         const text =
@@ -148,8 +159,10 @@ export function registerBotCommands(bot: Bot) {
           `• <b>Entry:</b> $${entry}\n` +
           `• <b>Mark Price:</b> $${mark}\n` +
           `• <b>Stop Loss:</b> ${slText}\n` +
+          `• <b>Break-Even:</b> <b>${beStatus}</b>\n` +
           `• <b>Take Profit:</b> ${tpText}\n` +
-          `• <b>Floating PnL:</b> <b>${pnlSign}$${unPnl.toFixed(2)} USDT</b>\n` +
+          `• <b>Trailing TP:</b> <b>${trailingStatus}</b>\n` +
+          `• <b>Floating PnL:</b> ${pnlIcon} <b>${pnlSign}$${unPnl.toFixed(2)} USDT</b>\n` +
           `• <b>Harga Likuidasi:</b> $${liq}`;
 
         const keyboard = new InlineKeyboard().text(

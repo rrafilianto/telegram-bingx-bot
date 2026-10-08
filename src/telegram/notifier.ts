@@ -190,30 +190,43 @@ export async function notifyOpenPositionsUpdate(positions: PositionData[]): Prom
 
     const managed = storage.getManagedPosition(pos.symbol);
     const slText = managed && (managed.currentSl || managed.initialSl)
-      ? `$${managed.currentSl || managed.initialSl}${managed.isBreakEvenApplied ? " (BE)" : ""}`
+      ? `$${managed.currentSl || managed.initialSl}`
       : "-";
-    
+
+    const beStatus = managed
+      ? (managed.isBreakEvenApplied ? "✅ Sudah Aktif" : "⏳ Belum Aktif")
+      : "-";
+
     let tpText = "-";
+    let trailingStatus = "-";
     if (managed && managed.trailingActivationPrice && managed.trailingCallbackRate) {
       const cb = (managed.trailingCallbackRate * 100).toFixed(1);
-      tpText = `Trailing (Aktif $${managed.trailingActivationPrice}, CB ${cb}%)`;
+      tpText = `Trailing Stop (CB ${cb}%)`;
+      trailingStatus = managed.isTrailingActive
+        ? "🚀 Sudah Aktif (Running)"
+        : `⏳ Belum Aktif (Target $${managed.trailingActivationPrice})`;
     } else if (managed && managed.initialTp) {
       tpText = `$${managed.initialTp}`;
+      trailingStatus = "❌ Tidak Digunakan (Fixed TP)";
     }
 
+    const pnlIcon = unPnl >= 0 ? "🟢" : "🔴";
     detailList +=
       `${sideIcon} <b>${pos.symbol}</b> (${pos.positionSide} ${pos.leverage}x)\n` +
       `  • Entry: $${entry} | Sekarang: $${mark}\n` +
-      `  • SL: ${slText}\n` +
-      `  • TP: ${tpText}\n` +
-      `  • Floating PnL: <b>${pnlSign}$${unPnl.toFixed(2)} (${percentSign}${pnlPercent.toFixed(2)}%)</b>\n\n`;
+      `  • Stop Loss: ${slText}\n` +
+      `  • Break-Even: <b>${beStatus}</b>\n` +
+      `  • Take Profit: ${tpText}\n` +
+      `  • Trailing TP: <b>${trailingStatus}</b>\n` +
+      `  • Floating PnL: ${pnlIcon} <b>${pnlSign}$${unPnl.toFixed(2)} (${percentSign}${pnlPercent.toFixed(2)}%)</b>\n\n`;
   }
 
+  const totalIcon = totalUnPnl >= 0 ? "🟢" : "🔴";
   const totalSign = totalUnPnl >= 0 ? "+" : "";
   const msg =
     `⏱️ <b>UPDATE STATUS POSISI (Berkala)</b>\n\n` +
     `• <b>Total Posisi Aktif:</b> ${positions.length} koin\n` +
-    `• <b>Total Floating PnL:</b> <b>${totalSign}$${totalUnPnl.toFixed(2)} USDT</b>\n\n` +
+    `• <b>Total Floating PnL:</b> ${totalIcon} <b>${totalSign}$${totalUnPnl.toFixed(2)} USDT</b>\n\n` +
     detailList +
     `<i>Ketik /positions untuk opsi kontrol & tutup posisi.</i>`;
 
@@ -256,11 +269,15 @@ export async function sendDailySummaryReport(): Promise<void> {
         const sideIcon = p.positionSide === "LONG" ? "🟢" : "🔴";
         const pUnPnl = parseFloat(p.unrealizedProfit) || 0;
         const pSign = pUnPnl >= 0 ? "+" : "";
-        openPosText += `• ${sideIcon} <b>${p.symbol}</b> (${p.positionSide} ${p.leverage}x): <b>${pSign}$${pUnPnl.toFixed(2)} USDT</b>\n`;
+        const pPnlIcon = pUnPnl >= 0 ? "🟢" : "🔴";
+        openPosText += `• ${sideIcon} <b>${p.symbol}</b> (${p.positionSide} ${p.leverage}x): ${pPnlIcon} <b>${pSign}$${pUnPnl.toFixed(2)} USDT</b>\n`;
       }
     } else {
       openPosText = `\n💼 <b>Posisi Aktif:</b> <i>Tidak ada posisi terbuka saat ini.</i>\n`;
     }
+
+    const unPnlIcon = unPnl >= 0 ? "🟢" : "🔴";
+    const netIcon = finalNetProfit >= 0 ? "🟢" : "🔴";
 
     const msg =
       `📊 <b>RINGKASAN TRADING HARIAN (08:00 WIB)</b>\n` +
@@ -268,14 +285,14 @@ export async function sendDailySummaryReport(): Promise<void> {
       `💰 <b>Kondisi Akun:</b>\n` +
       `• <b>Total Equity:</b> $${equity.toFixed(2)} USDT\n` +
       `• <b>Saldo Dompet:</b> $${walletBal.toFixed(2)} USDT\n` +
-      `• <b>Floating PnL:</b> <b>${unSign}$${unPnl.toFixed(2)} USDT</b>\n\n` +
+      `• <b>Floating PnL:</b> ${unPnlIcon} <b>${unSign}$${unPnl.toFixed(2)} USDT</b>\n\n` +
       `📈 <b>Performa Trading Hari Ini:</b>\n` +
       `• <b>Total Trade Selesai:</b> ${daily.tradesCount} (${daily.winCount} Menang / ${daily.lossCount} Kalah)\n` +
       `• <b>Win Rate:</b> ${winRate}%\n` +
       `• <b>Realized PnL (Gross):</b> ${grossSign}$${daily.realizedPnl.toFixed(2)} USDT\n` +
       `• <b>Total Fee Trading:</b> $${totalComm.toFixed(2)} USDT\n` +
       `• <b>Total Funding Fee:</b> ${totalFund >= 0 ? "+" : ""}$${totalFund.toFixed(2)} USDT\n` +
-      `• <b>Net Profit (Bersih):</b> <b>${netSign}$${finalNetProfit.toFixed(2)} USDT (${percentSign}${pnlPercent.toFixed(2)}%)</b>\n` +
+      `• <b>Net Profit (Bersih):</b> ${netIcon} <b>${netSign}$${finalNetProfit.toFixed(2)} USDT (${percentSign}${pnlPercent.toFixed(2)}%)</b>\n` +
       openPosText +
       `\n<i>Semoga hari Anda produktif dan profit konsisten! 🚀</i>`;
 
