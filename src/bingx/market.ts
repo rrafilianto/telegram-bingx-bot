@@ -48,7 +48,9 @@ let lastContractsFetchTime = 0;
 
 export async function getAllTickers(): Promise<TickerData[]> {
   const data = await bingxPublicRequest<TickerData[]>("/openApi/swap/v2/quote/ticker");
-  return Array.isArray(data) ? data : [];
+  if (!Array.isArray(data)) return [];
+  // Hanya ambil pasangan crypto murni, abaikan instrumen TradFi (NC: Forex, Komoditas, Saham, Indeks)
+  return data.filter((t) => t.symbol && !t.symbol.startsWith("NC"));
 }
 
 export async function getContracts(): Promise<Map<string, ContractSpec>> {
@@ -61,7 +63,7 @@ export async function getContracts(): Promise<Map<string, ContractSpec>> {
   const map = new Map<string, ContractSpec>();
   if (Array.isArray(data)) {
     for (const item of data) {
-      if (item.symbol) {
+      if (item.symbol && !item.symbol.startsWith("NC")) {
         map.set(item.symbol, {
           ...item,
           quantityPrecision: Number(item.quantityPrecision) || 2,

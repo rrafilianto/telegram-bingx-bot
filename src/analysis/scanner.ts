@@ -22,6 +22,7 @@ export async function runMarketScan(): Promise<TradeSignal[]> {
   // Filter pasangan USDT-M Perpetual
   const usdtPairs = allTickers.filter((t) => {
     if (!t.symbol.endsWith("-USDT")) return false;
+    if (t.symbol.startsWith("NC")) return false; // Abaikan instrumen Non-Crypto (TradFi)
     if (config.blacklistSymbols.includes(t.symbol)) return false;
     if (storage.isSymbolInCooldown(t.symbol)) return false;
     return true;
