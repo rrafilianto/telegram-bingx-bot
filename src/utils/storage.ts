@@ -28,6 +28,10 @@ export interface TradeRecord {
   entryPrice: number;
   exitPrice: number;
   quantity: number;
+  realizedPnl: number;
+  commission: number;
+  fundingFee: number;
+  netProfit: number;
   pnlUsdt: number;
   pnlPercent: number;
   reason: "TAKE_PROFIT" | "STOP_LOSS" | "MANUAL_CLOSE" | "BREAK_EVEN" | "TRAILING_TP";
@@ -38,6 +42,9 @@ export interface DailyStats {
   date: string; // YYYY-MM-DD
   startingBalance: number;
   realizedPnl: number;
+  totalCommission: number;
+  totalFunding: number;
+  netProfit: number;
   tradesCount: number;
   winCount: number;
   lossCount: number;
@@ -69,6 +76,9 @@ function getDefaultState(): BotState {
       date: getTodayString(),
       startingBalance: 0,
       realizedPnl: 0,
+      totalCommission: 0,
+      totalFunding: 0,
+      netProfit: 0,
       tradesCount: 0,
       winCount: 0,
       lossCount: 0,
@@ -121,6 +131,9 @@ class StorageManager {
         date: today,
         startingBalance: currentBalance ?? this.state.dailyStats.startingBalance,
         realizedPnl: 0,
+        totalCommission: 0,
+        totalFunding: 0,
+        netProfit: 0,
         tradesCount: 0,
         winCount: 0,
         lossCount: 0,
@@ -191,9 +204,18 @@ class StorageManager {
       this.state.tradeHistory.shift(); // keep last 500
     }
 
+    const tradeRealized = trade.realizedPnl !== undefined ? trade.realizedPnl : (trade.pnlUsdt || 0);
+    const tradeComm = trade.commission || 0;
+    const tradeFund = trade.fundingFee || 0;
+    const tradeNet = trade.netProfit !== undefined ? trade.netProfit : (tradeRealized + tradeComm + tradeFund);
+
     this.state.dailyStats.tradesCount += 1;
-    this.state.dailyStats.realizedPnl += trade.pnlUsdt;
-    if (trade.pnlUsdt > 0) {
+    this.state.dailyStats.realizedPnl += tradeRealized;
+    this.state.dailyStats.totalCommission = (this.state.dailyStats.totalCommission || 0) + tradeComm;
+    this.state.dailyStats.totalFunding = (this.state.dailyStats.totalFunding || 0) + tradeFund;
+    this.state.dailyStats.netProfit = (this.state.dailyStats.netProfit || 0) + tradeNet;
+
+    if (tradeNet >= 0) {
       this.state.dailyStats.winCount += 1;
     } else {
       this.state.dailyStats.lossCount += 1;

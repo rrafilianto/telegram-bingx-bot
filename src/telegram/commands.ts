@@ -61,7 +61,9 @@ export function registerBotCommands(bot: Bot) {
 
     const daily = storage.getDailyStats();
     const winRate = daily.tradesCount > 0 ? ((daily.winCount / daily.tradesCount) * 100).toFixed(1) : "0";
-    const pnlSign = daily.realizedPnl >= 0 ? "+" : "";
+    const grossSign = daily.realizedPnl >= 0 ? "+" : "";
+    const finalNet = daily.netProfit !== undefined ? daily.netProfit : daily.realizedPnl;
+    const netSign = finalNet >= 0 ? "+" : "";
 
     const text =
       `📊 <b>STATUS SISTEM BOT (24/7 PM2)</b>\n\n` +
@@ -71,7 +73,8 @@ export function registerBotCommands(bot: Bot) {
       `<b>Statistik Hari Ini (${daily.date}):</b>\n` +
       `• Total Trade: ${daily.tradesCount} (${daily.winCount} Menang / ${daily.lossCount} Kalah)\n` +
       `• Win Rate: ${winRate}%\n` +
-      `• Realized PnL: <b>${pnlSign}$${daily.realizedPnl.toFixed(2)}</b>`;
+      `• Realized PnL (Gross): ${grossSign}$${daily.realizedPnl.toFixed(2)}\n` +
+      `• Net Profit (Bersih): <b>${netSign}$${finalNet.toFixed(2)}</b>`;
 
     await ctx.reply(text, { parse_mode: "HTML" });
   });

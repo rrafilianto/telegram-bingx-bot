@@ -63,7 +63,8 @@ export async function validateAndSizeTrade(
   const dailyStats = storage.getDailyStats();
   const maxLossAllowedUsdt = (dailyStats.startingBalance * config.maxDailyDrawdownPercent) / 100;
 
-  if (dailyStats.realizedPnl <= -maxLossAllowedUsdt && maxLossAllowedUsdt > 0) {
+  const currentLoss = dailyStats.netProfit !== undefined ? dailyStats.netProfit : dailyStats.realizedPnl;
+  if (currentLoss <= -maxLossAllowedUsdt && maxLossAllowedUsdt > 0) {
     logger.warn(`CIRCUIT BREAKER: Batas kerugian harian (-${config.maxDailyDrawdownPercent}%) tercapai!`);
     return emptyResult(`Circuit Breaker: Batas kerugian harian (-${config.maxDailyDrawdownPercent}%) tercapai.`);
   }

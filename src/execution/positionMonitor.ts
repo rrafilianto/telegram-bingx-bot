@@ -106,7 +106,10 @@ export async function checkPositions(): Promise<void> {
         await cancelAllOpenOrders(symbol);
 
         let exitPrice = managed.entryPrice;
-        let pnlUsdt = 0;
+        let realizedPnl = 0;
+        let commission = 0;
+        let fundingFee = 0;
+        let netProfit = 0;
         let pnlPercent = 0;
         let reason: "TAKE_PROFIT" | "STOP_LOSS" | "BREAK_EVEN" | "TRAILING_TP" | "MANUAL_CLOSE" = "MANUAL_CLOSE";
 
@@ -115,7 +118,20 @@ export async function checkPositions(): Promise<void> {
           const recClosePrice = parseFloat(closedPosRecord.avgClosePrice);
           if (recClosePrice > 0) exitPrice = recClosePrice;
           const recRealisedProfit = parseFloat(closedPosRecord.realisedProfit);
-          if (!isNaN(recRealisedProfit)) pnlUsdt = recRealisedProfit;
+          if (!isNaN(recRealisedProfit)) realizedPnl = recRealisedProfit;
+
+          const recCommission = parseFloat(closedPosRecord.positionCommission || "0");
+          if (!isNaN(recCommission)) commission = recCommission;
+
+          const recFunding = parseFloat(closedPosRecord.totalFunding || "0");
+          if (!isNaN(recFunding)) fundingFee = recFunding;
+
+          const recNetProfit = parseFloat(closedPosRecord.netProfit);
+          if (!isNaN(recNetProfit)) {
+            netProfit = recNetProfit;
+          } else {
+            netProfit = realizedPnl + commission + fundingFee;
+          }
         } else if (filledCloseOrder) {
           // Prioritas 2: Order penutupan terisi (filled close order)
           const filledAvgPrice = parseFloat(filledCloseOrder.avgPrice) || 0;
@@ -123,12 +139,16 @@ export async function checkPositions(): Promise<void> {
 
           const parsedProfit = parseFloat(filledCloseOrder.profit);
           if (!isNaN(parsedProfit) && filledCloseOrder.profit !== "") {
-            pnlUsdt = parsedProfit;
+            realizedPnl = parsedProfit;
           } else {
-            pnlUsdt = managed.positionSide === "LONG"
+            realizedPnl = managed.positionSide === "LONG"
               ? (exitPrice - managed.entryPrice) * managed.quantity
               : (managed.entryPrice - exitPrice) * managed.quantity;
           }
+
+          const parsedComm = parseFloat(filledCloseOrder.commission || "0");
+          if (!isNaN(parsedComm)) commission = parsedComm;
+          netProfit = realizedPnl + commission;
         } else {
           // Kasus darurat setelah 5 siklus: ambil Mark Price pasar real-time terkini
           try {
@@ -138,15 +158,16 @@ export async function checkPositions(): Promise<void> {
           } catch {
             exitPrice = managed.entryPrice;
           }
-          pnlUsdt = managed.positionSide === "LONG"
+          realizedPnl = managed.positionSide === "LONG"
             ? (exitPrice - managed.entryPrice) * managed.quantity
             : (managed.entryPrice - exitPrice) * managed.quantity;
+          netProfit = realizedPnl;
         }
 
-        // Hitung persentase PnL
+        // Hitung persentase PnL berbasis Net Profit
         const margin = (managed.entryPrice * managed.quantity) / (managed.leverage || 10);
-        pnlPercent = margin > 0 ? (pnlUsdt / margin) * 100 : 0;
-        const isWin = pnlUsdt >= 0;
+        pnlPercent = margin > 0 ? (netProfit / margin) * 100 : 0;
+        const isWin = netProfit >= 0;
 
         // Tentukan trigger penutupan berdasarkan jenis order sebenarnya
         if (filledCloseOrder) {
@@ -194,7 +215,11 @@ export async function checkPositions(): Promise<void> {
           entryPrice: managed.entryPrice,
           exitPrice,
           quantity: managed.quantity,
-          pnlUsdt,
+          realizedPnl,
+          commission,
+          fundingFee,
+          netProfit,
+          pnlUsdt: netProfit,
           pnlPercent,
           reason,
           closedAt: Date.now(),
@@ -209,7 +234,10 @@ export async function checkPositions(): Promise<void> {
           side: managed.positionSide,
           entryPrice: managed.entryPrice,
           exitPrice,
-          pnlUsdt,
+          realizedPnl,
+          commission,
+          fundingFee,
+          netProfit,
           pnlPercent,
           reason,
         });

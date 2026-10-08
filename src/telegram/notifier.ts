@@ -98,20 +98,41 @@ export async function notifyTradeClosed(data: {
   side: "LONG" | "SHORT";
   entryPrice: number;
   exitPrice: number;
-  pnlUsdt: number;
+  realizedPnl?: number;
+  commission?: number;
+  fundingFee?: number;
+  netProfit?: number;
+  pnlUsdt?: number;
   pnlPercent: number;
   reason: string;
 }): Promise<void> {
-  const isWin = data.pnlUsdt >= 0;
+  const finalNetProfit = data.netProfit !== undefined ? data.netProfit : (data.pnlUsdt ?? 0);
+  const grossRealized = data.realizedPnl !== undefined ? data.realizedPnl : finalNetProfit;
+  const isWin = finalNetProfit >= 0;
   const icon = isWin ? "🎯 <b>PROFIT</b> ✅" : "🛑 <b>LOSS</b> ❌";
-  const pnlSign = isWin ? "+" : "";
+  const netSign = finalNetProfit >= 0 ? "+" : "";
+  const grossSign = grossRealized >= 0 ? "+" : "";
+  const percentSign = data.pnlPercent >= 0 ? "+" : "";
+
+  let feeFundingSection = "";
+  if (data.commission !== undefined || data.fundingFee !== undefined) {
+    const commStr = data.commission !== undefined ? `$${data.commission.toFixed(2)}` : "$0.00";
+    const fundStr = data.fundingFee !== undefined
+      ? `${data.fundingFee >= 0 ? "+" : ""}$${data.fundingFee.toFixed(2)}`
+      : "$0.00";
+    feeFundingSection =
+      `• <b>Fee Trading:</b> ${commStr}\n` +
+      `• <b>Funding Fee:</b> ${fundStr}\n`;
+  }
 
   const msg =
     `${icon} <b>POSISI TERTUTUP: ${data.symbol}</b>\n\n` +
     `• <b>Arah:</b> ${data.side}\n` +
     `• <b>Entry:</b> $${data.entryPrice}\n` +
     `• <b>Exit:</b> $${data.exitPrice}\n` +
-    `• <b>Hasil PnL:</b> <b>${pnlSign}$${data.pnlUsdt.toFixed(2)} (${pnlSign}${data.pnlPercent.toFixed(2)}%)</b>\n` +
+    `• <b>Realized PnL (Gross):</b> ${grossSign}$${grossRealized.toFixed(2)} USDT\n` +
+    feeFundingSection +
+    `• <b>Net Profit (Bersih):</b> <b>${netSign}$${finalNetProfit.toFixed(2)} USDT (${percentSign}${data.pnlPercent.toFixed(2)}%)</b>\n` +
     `• <b>Pemicu Tutup:</b> <code>${data.reason}</code>`;
 
   await sendMessage(msg);
@@ -211,9 +232,13 @@ export async function sendDailySummaryReport(): Promise<void> {
     const unSign = unPnl >= 0 ? "+" : "";
 
     const winRate = daily.tradesCount > 0 ? ((daily.winCount / daily.tradesCount) * 100).toFixed(1) : "0.0";
-    const pnlSign = daily.realizedPnl >= 0 ? "+" : "";
-    const pnlPercent = daily.startingBalance > 0 ? (daily.realizedPnl / daily.startingBalance) * 100 : 0;
+    const finalNetProfit = daily.netProfit !== undefined ? daily.netProfit : daily.realizedPnl;
+    const netSign = finalNetProfit >= 0 ? "+" : "";
+    const grossSign = daily.realizedPnl >= 0 ? "+" : "";
+    const pnlPercent = daily.startingBalance > 0 ? (finalNetProfit / daily.startingBalance) * 100 : 0;
     const percentSign = pnlPercent >= 0 ? "+" : "";
+    const totalComm = daily.totalCommission || 0;
+    const totalFund = daily.totalFunding || 0;
 
     const now = new Date();
     const dateStr = now.toLocaleDateString("id-ID", {
@@ -244,10 +269,13 @@ export async function sendDailySummaryReport(): Promise<void> {
       `• <b>Total Equity:</b> $${equity.toFixed(2)} USDT\n` +
       `• <b>Saldo Dompet:</b> $${walletBal.toFixed(2)} USDT\n` +
       `• <b>Floating PnL:</b> <b>${unSign}$${unPnl.toFixed(2)} USDT</b>\n\n` +
-      `📈 <b>Performa Trading:</b>\n` +
+      `📈 <b>Performa Trading Hari Ini:</b>\n` +
       `• <b>Total Trade Selesai:</b> ${daily.tradesCount} (${daily.winCount} Menang / ${daily.lossCount} Kalah)\n` +
       `• <b>Win Rate:</b> ${winRate}%\n` +
-      `• <b>Realized PnL:</b> <b>${pnlSign}$${daily.realizedPnl.toFixed(2)} USDT (${percentSign}${pnlPercent.toFixed(2)}%)</b>\n` +
+      `• <b>Realized PnL (Gross):</b> ${grossSign}$${daily.realizedPnl.toFixed(2)} USDT\n` +
+      `• <b>Total Fee Trading:</b> $${totalComm.toFixed(2)} USDT\n` +
+      `• <b>Total Funding Fee:</b> ${totalFund >= 0 ? "+" : ""}$${totalFund.toFixed(2)} USDT\n` +
+      `• <b>Net Profit (Bersih):</b> <b>${netSign}$${finalNetProfit.toFixed(2)} USDT (${percentSign}${pnlPercent.toFixed(2)}%)</b>\n` +
       openPosText +
       `\n<i>Semoga hari Anda produktif dan profit konsisten! 🚀</i>`;
 

@@ -237,6 +237,8 @@ export interface ClosedPositionRecord {
   positionAmt: string;
   closePositionAmt: string;
   leverage: number;
+  positionCommission?: string;
+  totalFunding?: string;
 }
 
 export async function getLatestPositionHistory(
