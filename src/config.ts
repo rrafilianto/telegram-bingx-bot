@@ -63,7 +63,7 @@ export const config: BotConfig = {
 
   defaultLeverage: parseEnvNumber("DEFAULT_LEVERAGE", 10),
   marginType: (parseEnvString("MARGIN_TYPE", "ISOLATED") as "ISOLATED" | "CROSSED") || "ISOLATED",
-  maxConcurrentPositions: parseEnvNumber("MAX_CONCURRENT_POSITIONS", 3),
+  maxConcurrentPositions: parseEnvNumber("MAX_CONCURRENT_POSITIONS", 5),
   riskPerTradePercent: parseEnvNumber("RISK_PER_TRADE_PERCENT", 2.0),
   maxDailyDrawdownPercent: parseEnvNumber("MAX_DAILY_DRAWDOWN_PERCENT", 5.0),
   maxPositionNotionalPercent: parseEnvNumber("MAX_POSITION_NOTIONAL_PERCENT", 100),
