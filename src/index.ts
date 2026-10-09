@@ -9,7 +9,7 @@ import {
   sendDailySummaryReport,
 } from "./telegram/notifier.js";
 import { runMarketScan } from "./analysis/scanner.js";
-import { validateAndSizeTrade } from "./execution/riskManager.js";
+import { validateAndSizeTrade, checkCircuitBreaker } from "./execution/riskManager.js";
 import { executeTrade } from "./execution/orderExecutor.js";
 import { checkPositions } from "./execution/positionMonitor.js";
 import { startSwapWebSocket, stopWebSocket } from "./bingx/ws.js";
@@ -30,7 +30,20 @@ async function executeScanCycle() {
     return;
   }
 
-  // 2. Cek apakah kapasitas posisi aktif sudah penuh (misal 3/3)
+  // 2. Lewati jika Circuit Breaker aktif (mencegah pemindaian token saat batas kerugian harian tercapai)
+  try {
+    const cb = await checkCircuitBreaker();
+    if (cb.triggered) {
+      logger.warn(
+        `CIRCUIT BREAKER AKTIF: Kerugian hari ini -$${Math.abs(cb.currentLoss).toFixed(2)} (${cb.drawdownPercent.toFixed(1)}%) telah mencapai batas proteksi (-${config.maxDailyDrawdownPercent}% / -$${cb.maxLossAllowed.toFixed(2)}). Pemindaian pasar otomatis dilewati.`
+      );
+      return;
+    }
+  } catch (err: any) {
+    logger.debug("Gagal memeriksa circuit breaker sebelum scan:", err?.message || err);
+  }
+
+  // 3. Cek apakah kapasitas posisi aktif sudah penuh (misal 3/3)
   try {
     const openPositions = await getPositions();
     if (openPositions.length >= config.maxConcurrentPositions) {

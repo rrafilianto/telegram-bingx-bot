@@ -40,6 +40,52 @@ function emptyResult(reason: string): SizingResult {
   };
 }
 
+export interface CircuitBreakerStatus {
+  triggered: boolean;
+  currentLoss: number;
+  maxLossAllowed: number;
+  drawdownPercent: number;
+  startingBalance: number;
+  reason?: string;
+}
+
+export async function checkCircuitBreaker(): Promise<CircuitBreakerStatus> {
+  const dailyStats = storage.getDailyStats();
+  let startingBalance = dailyStats.startingBalance;
+
+  // Jika starting balance belum ada (misal bot baru start hari ini),
+  // sinkronkan dari saldo akun BingX terkini.
+  if (startingBalance <= 0) {
+    try {
+      const balanceInfo = await getBalance();
+      if (balanceInfo) {
+        const equity = parseFloat(balanceInfo.equity) || parseFloat(balanceInfo.balance) || 0;
+        storage.checkDailyReset(equity);
+        storage.updateStartingBalance(equity);
+        startingBalance = storage.getDailyStats().startingBalance;
+      }
+    } catch (err: any) {
+      logger.debug("Gagal menyinkronkan saldo awal untuk circuit breaker:", err?.message || err);
+    }
+  }
+
+  const maxLossAllowed = (startingBalance * config.maxDailyDrawdownPercent) / 100;
+  const currentLoss = dailyStats.netProfit !== undefined ? dailyStats.netProfit : dailyStats.realizedPnl;
+  const triggered = currentLoss <= -maxLossAllowed && maxLossAllowed > 0;
+  const drawdownPercent = startingBalance > 0 ? (Math.abs(currentLoss) / startingBalance) * 100 : 0;
+
+  return {
+    triggered,
+    currentLoss,
+    maxLossAllowed,
+    drawdownPercent,
+    startingBalance,
+    reason: triggered
+      ? `Circuit Breaker: Batas kerugian harian (-${config.maxDailyDrawdownPercent}%) tercapai.`
+      : undefined,
+  };
+}
+
 export async function validateAndSizeTrade(
   signal: TradeSignal
 ): Promise<SizingResult> {
@@ -60,13 +106,10 @@ export async function validateAndSizeTrade(
   storage.checkDailyReset(equity);
   storage.updateStartingBalance(equity);
 
-  const dailyStats = storage.getDailyStats();
-  const maxLossAllowedUsdt = (dailyStats.startingBalance * config.maxDailyDrawdownPercent) / 100;
-
-  const currentLoss = dailyStats.netProfit !== undefined ? dailyStats.netProfit : dailyStats.realizedPnl;
-  if (currentLoss <= -maxLossAllowedUsdt && maxLossAllowedUsdt > 0) {
+  const cb = await checkCircuitBreaker();
+  if (cb.triggered) {
     logger.warn(`CIRCUIT BREAKER: Batas kerugian harian (-${config.maxDailyDrawdownPercent}%) tercapai!`);
-    return emptyResult(`Circuit Breaker: Batas kerugian harian (-${config.maxDailyDrawdownPercent}%) tercapai.`);
+    return emptyResult(cb.reason || `Circuit Breaker: Batas kerugian harian (-${config.maxDailyDrawdownPercent}%) tercapai.`);
   }
 
   // 3. Cek Batas Maksimal Posisi Terbuka

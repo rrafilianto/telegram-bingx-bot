@@ -3,6 +3,7 @@ import { getBalance, getPositions } from "../bingx/account.js";
 import { closePositionMarket } from "../bingx/trade.js";
 import { getMarketSentiment } from "../analysis/sentiment.js";
 import { runMarketScan } from "../analysis/scanner.js";
+import { checkCircuitBreaker } from "../execution/riskManager.js";
 import { config } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
@@ -59,6 +60,11 @@ export function registerBotCommands(bot: Bot) {
     const envText = config.bingxEnv === "prod-live" ? "🔴 Live (Uang Asli)" : "🟢 VST (Simulasi)";
     const pauseText = storage.isPaused() ? "⏸️ <b>DI-PAUSE</b>" : "▶️ <b>BERJALAN AKTIF</b>";
 
+    const cb = await checkCircuitBreaker();
+    const cbText = cb.triggered
+      ? `🚨 <b>AKTIF (Max Drawdown -${config.maxDailyDrawdownPercent}% Tercapai)</b>`
+      : `🛡️ Normal (Batas Maks -${config.maxDailyDrawdownPercent}%)`;
+
     const daily = storage.getDailyStats();
     const winRate = daily.tradesCount > 0 ? ((daily.winCount / daily.tradesCount) * 100).toFixed(1) : "0";
     const grossSign = daily.realizedPnl >= 0 ? "+" : "";
@@ -69,7 +75,8 @@ export function registerBotCommands(bot: Bot) {
       `📊 <b>STATUS SISTEM BOT (24/7 PM2)</b>\n\n` +
       `• <b>Uptime:</b> ${uptimeMinutes} menit (${uptimeHours} jam)\n` +
       `• <b>Environment:</b> ${envText}\n` +
-      `• <b>Status Auto-Trade:</b> ${pauseText}\n\n` +
+      `• <b>Status Auto-Trade:</b> ${pauseText}\n` +
+      `• <b>Circuit Breaker:</b> ${cbText}\n\n` +
       `<b>Statistik Hari Ini (${daily.date}):</b>\n` +
       `• Total Trade: ${daily.tradesCount} (${daily.winCount} Menang / ${daily.lossCount} Kalah)\n` +
       `• Win Rate: ${winRate}%\n` +
@@ -213,17 +220,30 @@ export function registerBotCommands(bot: Bot) {
   // /scan
   bot.command("scan", async (ctx) => {
     try {
+      const cb = await checkCircuitBreaker();
+      let headerNote = "";
+      if (cb.triggered) {
+        headerNote =
+          `⚠️ <b>PERINGATAN: CIRCUIT BREAKER AKTIF!</b>\n` +
+          `• Batas kerugian harian (-${config.maxDailyDrawdownPercent}%) telah tercapai.\n` +
+          `• Kerugian hari ini: -$${Math.abs(cb.currentLoss).toFixed(2)} (${cb.drawdownPercent.toFixed(1)}%).\n` +
+          `• Auto-Trade otomatis dimatikan sampai reset harian.\n` +
+          `<i>ℹ️ Hasil pemindaian di bawah ini HANYA untuk referensi/pantauan manual:</i>\n\n`;
+      }
+
       await ctx.reply("🔎 Memulai scanner dinamis pasar... Mohon tunggu ~10 detik.", {
         parse_mode: "HTML",
       });
       const signals = await runMarketScan();
 
       if (signals.length === 0) {
-        await ctx.reply("ℹ️ Pemindaian selesai. Belum ditemukan peluang sinyal dengan skor tinggi saat ini.");
+        await ctx.reply(`${headerNote}ℹ️ Pemindaian selesai. Belum ditemukan peluang sinyal dengan skor tinggi saat ini.`, {
+          parse_mode: "HTML",
+        });
         return;
       }
 
-      let text = `🎯 <b>HASIL PEMINDAIAN PASAR (${signals.length} Sinyal Ditemukan):</b>\n\n`;
+      let text = `${headerNote}🎯 <b>HASIL PEMINDAIAN PASAR (${signals.length} Sinyal Ditemukan):</b>\n\n`;
       for (const s of signals.slice(0, 5)) {
         const icon = s.positionSide === "LONG" ? "🟢" : "🔴";
         const escapedReasons = s.reasons.map((r) => r.replace(/</g, "&lt;").replace(/>/g, "&gt;")).join(", ");

@@ -2,6 +2,7 @@ import { config } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
 import { PositionData, getBalance, getPositions } from "../bingx/account.js";
+import { checkCircuitBreaker } from "../execution/riskManager.js";
 import { bot } from "./bot.js";
 
 export function escapeHtml(text: string): string {
@@ -223,10 +224,17 @@ export async function notifyOpenPositionsUpdate(positions: PositionData[]): Prom
 
   const totalIcon = totalUnPnl >= 0 ? "🟢" : "🔴";
   const totalSign = totalUnPnl >= 0 ? "+" : "";
+
+  const cb = await checkCircuitBreaker();
+  const cbText = cb.triggered
+    ? `🚨 <b>AKTIF (Max -${config.maxDailyDrawdownPercent}% tercapai: -$${Math.abs(cb.currentLoss).toFixed(2)})</b>`
+    : `🛡️ Normal (Batas Maks -${config.maxDailyDrawdownPercent}%)`;
+
   const msg =
     `⏱️ <b>UPDATE STATUS POSISI (Berkala)</b>\n\n` +
     `• <b>Total Posisi Aktif:</b> ${positions.length} koin\n` +
-    `• <b>Total Floating PnL:</b> ${totalIcon} <b>${totalSign}$${totalUnPnl.toFixed(2)} USDT</b>\n\n` +
+    `• <b>Total Floating PnL:</b> ${totalIcon} <b>${totalSign}$${totalUnPnl.toFixed(2)} USDT</b>\n` +
+    `• <b>Circuit Breaker:</b> ${cbText}\n\n` +
     detailList +
     `<i>Ketik /positions untuk opsi kontrol & tutup posisi.</i>`;
 
