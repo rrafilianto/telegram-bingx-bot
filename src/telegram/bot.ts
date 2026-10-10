@@ -21,6 +21,7 @@ export async function startTelegramBot(): Promise<void> {
         { command: "balance", description: "Cek saldo wallet & floating PnL" },
         { command: "positions", description: "Daftar posisi terbuka & opsi tutup" },
         { command: "summary", description: "Laporan ringkasan trade harian (08:00 WIB)" },
+        { command: "history", description: "Total akumulasi & rekap semua trade history" },
         { command: "sentiment", description: "Indeks Fear & Greed pasar" },
         { command: "scan", description: "Scan Top 15 koin manual sekarang" },
         { command: "pause", description: "Hentikan sementara auto-trade" },

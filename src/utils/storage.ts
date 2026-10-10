@@ -234,6 +234,102 @@ class StorageManager {
       this.saveState();
     }
   }
+
+  public getTradeHistory(): TradeRecord[] {
+    return this.state.tradeHistory || [];
+  }
+
+  public getTradeHistoryStats() {
+    const history = this.state.tradeHistory || [];
+    const totalTrades = history.length;
+    if (totalTrades === 0) {
+      return {
+        totalTrades: 0,
+        winCount: 0,
+        lossCount: 0,
+        breakEvenCount: 0,
+        winRate: 0,
+        totalRealizedPnl: 0,
+        totalCommission: 0,
+        totalFunding: 0,
+        totalNetProfit: 0,
+        profitFactor: 0,
+        avgNetProfit: 0,
+        bestTrade: null as TradeRecord | null,
+        worstTrade: null as TradeRecord | null,
+        reasonCounts: {} as Record<string, number>,
+      };
+    }
+
+    let totalRealizedPnl = 0;
+    let totalCommission = 0;
+    let totalFunding = 0;
+    let totalNetProfit = 0;
+    let winCount = 0;
+    let lossCount = 0;
+    let breakEvenCount = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+    let bestTrade: TradeRecord | null = null;
+    let worstTrade: TradeRecord | null = null;
+    const reasonCounts: Record<string, number> = {};
+
+    for (const t of history) {
+      const realized = t.realizedPnl !== undefined ? t.realizedPnl : (t.pnlUsdt || 0);
+      const comm = t.commission || 0;
+      const fund = t.fundingFee || 0;
+      const net = t.netProfit !== undefined ? t.netProfit : (realized + comm + fund);
+
+      totalRealizedPnl += realized;
+      totalCommission += comm;
+      totalFunding += fund;
+      totalNetProfit += net;
+
+      if (net > 0) {
+        winCount++;
+        grossProfit += net;
+      } else if (net < 0) {
+        lossCount++;
+        grossLoss += Math.abs(net);
+      } else {
+        breakEvenCount++;
+      }
+
+      const bestNet = bestTrade ? (bestTrade.netProfit !== undefined ? bestTrade.netProfit : bestTrade.realizedPnl) : -Infinity;
+      if (!bestTrade || net > bestNet) {
+        bestTrade = t;
+      }
+
+      const worstNet = worstTrade ? (worstTrade.netProfit !== undefined ? worstTrade.netProfit : worstTrade.realizedPnl) : Infinity;
+      if (!worstTrade || net < worstNet) {
+        worstTrade = t;
+      }
+
+      const r = t.reason || "OTHER";
+      reasonCounts[r] = (reasonCounts[r] || 0) + 1;
+    }
+
+    const winRate = totalTrades > 0 ? (winCount / totalTrades) * 100 : 0;
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? 99.9 : 0;
+    const avgNetProfit = totalTrades > 0 ? totalNetProfit / totalTrades : 0;
+
+    return {
+      totalTrades,
+      winCount,
+      lossCount,
+      breakEvenCount,
+      winRate,
+      totalRealizedPnl,
+      totalCommission,
+      totalFunding,
+      totalNetProfit,
+      profitFactor,
+      avgNetProfit,
+      bestTrade,
+      worstTrade,
+      reasonCounts,
+    };
+  }
 }
 
 export const storage = new StorageManager();
