@@ -17,13 +17,14 @@ export async function startTelegramBot(): Promise<void> {
     // Daftarkan daftar command menu ke Telegram agar muncul di tombol [Menu /]
     try {
       await bot.api.setMyCommands([
+        { command: "mode", description: "Pilih preset mode (Scalping / Day Trade)" },
         { command: "status", description: "Status bot & performa harian" },
         { command: "balance", description: "Cek saldo wallet & floating PnL" },
         { command: "positions", description: "Daftar posisi terbuka & opsi tutup" },
         { command: "summary", description: "Laporan ringkasan trade harian (08:00 WIB)" },
         { command: "history", description: "Total akumulasi & rekap semua trade history" },
         { command: "sentiment", description: "Indeks Fear & Greed pasar" },
-        { command: "scan", description: "Scan Top 15 koin manual sekarang" },
+        { command: "scan", description: "Scan token volume tertinggi manual" },
         { command: "pause", description: "Hentikan sementara auto-trade" },
         { command: "resume", description: "Aktifkan kembali auto-trade" },
         { command: "help", description: "Panduan perintah bot" },

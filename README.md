@@ -56,8 +56,9 @@ A robust, autonomous 24/7 algorithmic trading bot for **BingX USDT-M Perpetual F
 
 ### 8. Interactive Telegram Commands
 - `/start` : Initialize bot interaction and automatically bind your Telegram Chat ID.
+- `/mode` : View and switch trading mode presets (**⚡ Scalping (3m)** vs **📊 Day Trade (15m)**) via interactive inline buttons.
 - `/help` : Display command guide and available shortcuts.
-- `/status` : View bot uptime, environment mode (`prod-vst` / `prod-live`), auto-trade status, and today's Gross & Net PnL.
+- `/status` : View bot uptime, active mode preset, environment mode (`prod-vst` / `prod-live`), auto-trade status, and today's Gross & Net PnL.
 - `/balance` : View wallet balance, available margin, total equity, and floating PnL with status icon.
 - `/positions` : Monitor live active positions with BE status, Trailing status, and interactive inline **[❌ Tutup Posisi]** buttons for instant manual close.
 - `/summary` : Instantly request the daily performance report on demand.
@@ -197,10 +198,28 @@ pm2 startup            # Register PM2 as a system service for auto-start
 
 ## ⚙️ Configuration Reference
 
+### Trading Mode Presets
+
+The bot supports two pre-calibrated trading presets that can be switched on-the-fly via `/mode` in Telegram or defaulted via `TRADING_MODE` in `.env`:
+
+| Parameter | 📊 `daytrade` (Default) | ⚡ `scalping` |
+|---|---|---|
+| **Execution Timeframe** | `15m` | `3m` |
+| **Macro Trend Timeframe** | `1h` (EMA 50) | `15m` (EMA 50) |
+| **Market Scan Frequency** | Every 5 minutes | Every 1 minute |
+| **Position Monitor Frequency** | Every 15 seconds | Every 5 seconds |
+| **Candidate Universe** | Top 15 volume pairs | Top 5 volume pairs (tightest spread) |
+| **Safety Stop Loss Bracket** | 1.5% – 4.5% (2.5x ATR) | 0.5% – 1.5% (1.5x ATR) |
+| **Break-Even Trigger** | +1.0R | +0.8R |
+| **Trailing Stop Activation** | +1.5R | +1.2R |
+| **Trailing Callback Rate** | 0.6% – 2.5% | 0.2% – 0.8% |
+| **Pullback Max Deviation** | 2.5% from EMA21 | 0.8% from EMA21 |
+
 You can customize trading and risk parameters inside [src/config.ts](file:///Users/ryan/Documents/Project/analyzer/telegram-bingx/src/config.ts) or by overriding them via `.env`:
 
 | Variable | Default | Description |
 |---|---|---|
+| `TRADING_MODE` | `daytrade` | Default mode preset: `daytrade` or `scalping` (switchable via Telegram `/mode`) |
 | `BINGX_ENV` | `prod-vst` | `prod-vst` for demo trading, `prod-live` for live trading |
 | `DEFAULT_LEVERAGE` | `10` | Leverage multiplier (e.g., 10x) |
 | `MARGIN_TYPE` | `ISOLATED` | `ISOLATED` or `CROSSED` margin mode |

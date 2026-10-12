@@ -4,10 +4,44 @@ import { closePositionMarket } from "../bingx/trade.js";
 import { getMarketSentiment } from "../analysis/sentiment.js";
 import { runMarketScan } from "../analysis/scanner.js";
 import { checkCircuitBreaker } from "../execution/riskManager.js";
-import { config } from "../config.js";
+import { config, getActivePreset, setTradingMode, TradingMode } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
 import { sendDailySummaryReport } from "./notifier.js";
+
+function buildModeMessage(): { text: string; keyboard: InlineKeyboard } {
+  const currentMode = storage.getTradingMode();
+  const currentPreset = getActivePreset();
+
+  const text =
+    `🎛️ <b>PENGATURAN PRESET MODE TRADING</b>\n\n` +
+    `Mode Aktif Saat Ini: <b>${currentPreset.badge}</b> (${currentPreset.label})\n` +
+    `<i>${currentPreset.description}</i>\n\n` +
+    `📋 <b>Parameter Mode ${currentPreset.label}:</b>\n` +
+    `• <b>Timeframe Eksekusi:</b> <code>${currentPreset.timeframePrimary}</code> (Macro Trend: <code>${currentPreset.timeframeTrend}</code>)\n` +
+    `• <b>Interval Pemindaian:</b> Setiap <code>${currentPreset.scanIntervalMinutes} menit</code>\n` +
+    `• <b>Target Token:</b> Top <code>${currentPreset.topVolumeLimit} Koin</code> Volume Tertinggi\n` +
+    `• <b>Interval Monitor:</b> Setiap <code>${currentPreset.monitorIntervalSeconds} detik</code>\n` +
+    `• <b>Safety Stop Loss:</b> <code>${currentPreset.minSlPercent}% – ${currentPreset.maxSlPercent}%</code> (${currentPreset.atrMultiplierSl}x ATR)\n` +
+    `• <b>Break-Even Trigger:</b> <code>+${currentPreset.breakEvenTriggerR}R</code>\n` +
+    `• <b>Trailing TP Activation:</b> <code>+${currentPreset.trailingActivationR}R</code> (Callback: ${(currentPreset.trailingMinCallbackRate * 100).toFixed(1)}% – ${(currentPreset.trailingMaxCallbackRate * 100).toFixed(1)}%)\n\n` +
+    `👇 <i>Klik salah satu tombol di bawah untuk beralih mode secara instan:</i>`;
+
+  const keyboard = new InlineKeyboard();
+  if (currentMode === "scalping") {
+    keyboard
+      .text("✅ ⚡ Scalping (Aktif)", "noop")
+      .row()
+      .text("📊 Switch ke Day Trade (15m)", "set_mode:daytrade");
+  } else {
+    keyboard
+      .text("⚡ Switch ke Scalping (3m)", "set_mode:scalping")
+      .row()
+      .text("✅ 📊 Day Trade (Aktif)", "noop");
+  }
+
+  return { text, keyboard };
+}
 
 export function registerBotCommands(bot: Bot) {
   // /start
@@ -15,10 +49,13 @@ export function registerBotCommands(bot: Bot) {
     const chatId = String(ctx.chat.id);
     storage.setChatId(chatId);
 
+    const preset = getActivePreset();
     const text =
       `👋 <b>Halo! BingX Futures Trading Bot siap melayani Anda 24/7.</b>\n\n` +
+      `Mode Saat Ini: <b>${preset.badge}</b> (${preset.label})\n` +
       `Chat ID Anda (<code>${chatId}</code>) telah didaftarkan untuk menerima seluruh alert dan laporan.\n\n` +
       `<b>Daftar Perintah:</b>\n` +
+      `• /mode - Pilih preset mode (Scalping / Day Trade)\n` +
       `• /status - Cek status bot & ringkasan performa\n` +
       `• /balance - Cek saldo wallet & floating PnL\n` +
       `• /positions - Daftar posisi terbuka & tombol tutup\n` +
@@ -37,16 +74,23 @@ export function registerBotCommands(bot: Bot) {
   bot.command("help", async (ctx) => {
     const text =
       `📖 <b>Bantuan & Perintah Bot</b>\n\n` +
+      `• <code>/mode</code> : Pilih preset strategi (Scalping 3m / Day Trade 15m)\n` +
       `• <code>/status</code> : Status uptime, mode bot, & statistik harian\n` +
       `• <code>/balance</code> : Saldo USDT, margin terpakai, & PnL berjalan\n` +
       `• <code>/positions</code> : Monitoring posisi aktif saat ini\n` +
       `• <code>/summary</code> : Laporan ringkasan harian (pukul 08:00 WIB)\n` +
       `• <code>/history</code> : Total statistik & performa seluruh history trade\n` +
       `• <code>/sentiment</code> : Kondisi Fear & Greed pasar kripto\n` +
-      `• <code>/scan</code> : Scan Top 15 token volume tertinggi manual\n` +
+      `• <code>/scan</code> : Scan token volume tertinggi manual\n` +
       `• <code>/pause</code> : Hentikan sementara auto-trade\n` +
       `• <code>/resume</code> : Aktifkan kembali auto-trade`;
     await ctx.reply(text, { parse_mode: "HTML" });
+  });
+
+  // /mode
+  bot.command("mode", async (ctx) => {
+    const { text, keyboard } = buildModeMessage();
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
   });
 
   // /summary
@@ -160,11 +204,15 @@ export function registerBotCommands(bot: Bot) {
     const grossSign = daily.realizedPnl >= 0 ? "+" : "";
     const finalNet = daily.netProfit !== undefined ? daily.netProfit : daily.realizedPnl;
     const netSign = finalNet >= 0 ? "+" : "";
+    const currentPreset = getActivePreset();
 
     const text =
       `📊 <b>STATUS SISTEM BOT (24/7 PM2)</b>\n\n` +
       `• <b>Uptime:</b> ${uptimeMinutes} menit (${uptimeHours} jam)\n` +
       `• <b>Environment:</b> ${envText}\n` +
+      `• <b>Mode Preset:</b> <b>${currentPreset.badge}</b> (${currentPreset.label})\n` +
+      `• <b>Timeframe:</b> ${currentPreset.timeframePrimary} (Entry) & ${currentPreset.timeframeTrend} (Trend)\n` +
+      `• <b>Scanner:</b> Setiap ${currentPreset.scanIntervalMinutes}m (Top ${currentPreset.topVolumeLimit} Coins)\n` +
       `• <b>Status Auto-Trade:</b> ${pauseText}\n` +
       `• <b>Circuit Breaker:</b> ${cbText}\n\n` +
       `<b>Statistik Hari Ini (${daily.date}):</b>\n` +
@@ -173,7 +221,8 @@ export function registerBotCommands(bot: Bot) {
       `• Realized PnL (Gross): ${grossSign}$${daily.realizedPnl.toFixed(2)}\n` +
       `• Net Profit (Bersih): ${finalNet >= 0 ? "🟢" : "🔴"} <b>${netSign}$${finalNet.toFixed(2)}</b>`;
 
-    await ctx.reply(text, { parse_mode: "HTML" });
+    const statusKeyboard = new InlineKeyboard().text("🎛️ Ganti Preset Mode", "open_mode_menu");
+    await ctx.reply(text, { parse_mode: "HTML", reply_markup: statusKeyboard });
   });
 
   // /balance
@@ -366,9 +415,48 @@ export function registerBotCommands(bot: Bot) {
     });
   });
 
-  // Callback query: Tutup Posisi Manual via tombol inline
+  // Callback query: Tutup Posisi Manual & Ganti Preset Mode via tombol inline
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
+
+    if (data === "noop") {
+      await ctx.answerCallbackQuery({ text: "Preset mode ini sudah aktif saat ini." });
+      return;
+    }
+
+    if (data === "open_mode_menu") {
+      const { text, keyboard } = buildModeMessage();
+      await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    if (data.startsWith("set_mode:")) {
+      const targetMode = data.replace("set_mode:", "") as TradingMode;
+      const currentMode = storage.getTradingMode();
+
+      if (targetMode === currentMode) {
+        await ctx.answerCallbackQuery({ text: "Preset mode ini sudah aktif!" });
+        return;
+      }
+
+      const newPreset = setTradingMode(targetMode);
+      await ctx.answerCallbackQuery({ text: `Mode berhasil diubah ke ${newPreset.badge}!` });
+
+      const { text, keyboard } = buildModeMessage();
+      const updatedText =
+        `✅ <b>BERHASIL BERGANTI PRESET KE ${newPreset.badge}!</b>\n\n` +
+        `Jadwal pemindaian pasar & interval pemantauan posisi telah disesuaikan secara otomatis.\n\n` +
+        text;
+
+      try {
+        await ctx.editMessageText(updatedText, { parse_mode: "HTML", reply_markup: keyboard });
+      } catch {
+        await ctx.reply(updatedText, { parse_mode: "HTML", reply_markup: keyboard });
+      }
+      return;
+    }
+
     if (data.startsWith("close_")) {
       const parts = data.split("_");
       const symbol = parts[1];

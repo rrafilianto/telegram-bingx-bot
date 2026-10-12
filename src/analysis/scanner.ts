@@ -2,12 +2,13 @@ import { getAllTickers, getKlines } from "../bingx/market.js";
 import { analyzeKlines } from "./technical.js";
 import { getMarketSentiment } from "./sentiment.js";
 import { evaluateStrategy, TradeSignal } from "./strategy.js";
-import { config } from "../config.js";
+import { config, getActivePreset } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
 
 export async function runMarketScan(): Promise<TradeSignal[]> {
-  logger.scan("Memulai pemindaian pasar dinamis (Dynamic Volume Scanner)...");
+  const preset = getActivePreset();
+  logger.scan(`Memulai pemindaian pasar dinamis [${preset.badge}]...`);
 
   const [allTickers, sentiment] = await Promise.all([
     getAllTickers(),
@@ -31,29 +32,29 @@ export async function runMarketScan(): Promise<TradeSignal[]> {
   // Urutkan berdasarkan volume 24 jam (USDT) tertinggi
   usdtPairs.sort((a, b) => parseFloat(b.quoteVolume || "0") - parseFloat(a.quoteVolume || "0"));
 
-  const topCandidates = usdtPairs.slice(0, config.topVolumeLimit);
-  logger.scan(`Menganalisis Top ${topCandidates.length} token volume tertinggi di BingX Swap...`);
+  const topCandidates = usdtPairs.slice(0, preset.topVolumeLimit);
+  logger.scan(`Menganalisis Top ${topCandidates.length} token volume tertinggi [${preset.badge}] di BingX Swap...`);
 
   const signals: TradeSignal[] = [];
 
   for (const item of topCandidates) {
     try {
-      // 1. Ambil K-line 15m
-      const klines15m = await getKlines(item.symbol, config.timeframePrimary, 80);
-      const ta15m = analyzeKlines(klines15m);
-      if (!ta15m) {
+      // 1. Ambil K-line timeframe eksekusi primer (misal 3m / 15m)
+      const klinesPrimary = await getKlines(item.symbol, preset.timeframePrimary, 80);
+      const taPrimary = analyzeKlines(klinesPrimary);
+      if (!taPrimary) {
         await new Promise((r) => setTimeout(r, 200));
         continue;
       }
 
-      // Jeda 200ms sebelum request timeframe 1h
+      // Jeda 200ms sebelum request timeframe tren
       await new Promise((r) => setTimeout(r, 200));
 
-      // 2. Ambil K-line 1h untuk filter tren makro
-      const klines1h = await getKlines(item.symbol, config.timeframeTrend, 60);
-      const ta1h = analyzeKlines(klines1h);
+      // 2. Ambil K-line timeframe tren makro (misal 15m / 1h)
+      const klinesTrend = await getKlines(item.symbol, preset.timeframeTrend, 60);
+      const taTrend = analyzeKlines(klinesTrend);
 
-      const signal = evaluateStrategy(item.symbol, ta15m, ta1h, sentiment);
+      const signal = evaluateStrategy(item.symbol, taPrimary, taTrend, sentiment);
 
       if (signal) {
         logger.trade(

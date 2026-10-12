@@ -1,4 +1,4 @@
-import { config } from "../config.js";
+import { config, getActivePreset } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
 import { PositionData, getBalance, getPositions } from "../bingx/account.js";
@@ -40,15 +40,18 @@ export async function sendMessage(text: string): Promise<void> {
 
 export async function notifyBotStarted(): Promise<void> {
   const envText = config.bingxEnv === "prod-live" ? "🔴 <b>LIVE (Real Funds)</b>" : "🟢 <b>VST (Simulasi Virtual)</b>";
+  const preset = getActivePreset();
   const msg =
     `🚀 <b>BingX 24/7 Futures Bot Aktif!</b>\n\n` +
     `• <b>Environment:</b> ${envText}\n` +
+    `• <b>Mode Preset:</b> <b>${preset.badge}</b> (${preset.label})\n` +
+    `• <b>Timeframe:</b> ${preset.timeframePrimary} (Entry) & ${preset.timeframeTrend} (Trend)\n` +
+    `• <b>Scanner:</b> Setiap ${preset.scanIntervalMinutes}m (Top ${preset.topVolumeLimit} Coins)\n` +
     `• <b>Default Leverage:</b> ${config.defaultLeverage}x (${config.marginType})\n` +
     `• <b>Max Open Posisi:</b> ${config.maxConcurrentPositions}\n` +
     `• <b>Risk per Trade:</b> ${config.riskPerTradePercent}%\n` +
-    `• <b>Daily Max Loss:</b> ${config.maxDailyDrawdownPercent}%\n` +
-    `• <b>Scanner Timeframe:</b> ${config.timeframePrimary} & ${config.timeframeTrend}\n\n` +
-    `Ketik /help atau /status untuk melihat perintah yang tersedia.`;
+    `• <b>Daily Max Loss:</b> ${config.maxDailyDrawdownPercent}%\n\n` +
+    `Ketik /mode untuk mengganti preset, atau /help untuk melihat panduan perintah.`;
 
   await sendMessage(msg);
 }

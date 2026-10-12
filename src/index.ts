@@ -1,4 +1,4 @@
-import { config, validateConfig } from "./config.js";
+import { config, validateConfig, getActivePreset, onTradingModeChanged } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { storage } from "./utils/storage.js";
 import { getPositions } from "./bingx/account.js";
@@ -20,6 +20,34 @@ let updatePositionsTimer: NodeJS.Timeout | null = null;
 let dailySummaryTimer: NodeJS.Timeout | null = null;
 let lastDailySummaryDate = "";
 let isScanning = false;
+
+export function restartIntervalTimers(): void {
+  const preset = getActivePreset();
+  if (monitorTimer) clearInterval(monitorTimer);
+  if (scanTimer) clearInterval(scanTimer);
+
+  logger.info(
+    `[PRESET ${preset.badge}] Mengatur ulang timer: Monitor tiap ${preset.monitorIntervalSeconds}s, Scanner tiap ${preset.scanIntervalMinutes}m`
+  );
+
+  monitorTimer = setInterval(async () => {
+    await checkPositions();
+  }, preset.monitorIntervalSeconds * 1000);
+
+  scanTimer = setInterval(async () => {
+    await executeScanCycle();
+  }, preset.scanIntervalMinutes * 60 * 1000);
+}
+
+// Pasang listener saat mode trading diubah (misal via Telegram Bot)
+onTradingModeChanged((mode, preset) => {
+  logger.info(`Mode trading berhasil diubah ke: ${preset.badge} (${preset.label})`);
+  restartIntervalTimers();
+  // Segera jalankan pemindaian pasar perdana untuk mode baru
+  executeScanCycle().catch((err) => {
+    logger.debug("Error saat pemindaian pasar pasca perubahan mode:", err);
+  });
+});
 
 async function executeScanCycle() {
   if (isScanning) return;
@@ -102,12 +130,16 @@ async function bootstrap() {
     warnings.forEach((w) => logger.warn(`[CONFIG WARNING] ${w}`));
   }
 
+  const preset = getActivePreset();
+
   logger.info(`Environment: ${config.bingxEnv === "prod-live" ? "🔴 PROD-LIVE (Real Funds)" : "🟢 PROD-VST (Simulasi)"}`);
+  logger.info(`Mode Preset: ${preset.badge} (${preset.label})`);
+  logger.info(`Primary Timeframe: ${preset.timeframePrimary} | Macro Trend: ${preset.timeframeTrend}`);
   logger.info(`Default Leverage: ${config.defaultLeverage}x (${config.marginType})`);
   logger.info(`Max Concurrent Positions: ${config.maxConcurrentPositions}`);
   logger.info(`Risk per Trade: ${config.riskPerTradePercent}%`);
-  logger.info(`Scanner Interval: Setiap ${config.scanIntervalMinutes} menit`);
-  logger.info(`Monitor Interval: Setiap ${config.monitorIntervalSeconds} detik`);
+  logger.info(`Scanner Interval: Setiap ${preset.scanIntervalMinutes} menit (Top ${preset.topVolumeLimit} Coins)`);
+  logger.info(`Monitor Interval: Setiap ${preset.monitorIntervalSeconds} detik`);
 
   // 1. Inisialisasi Telegram Bot
   await startTelegramBot();
@@ -118,12 +150,9 @@ async function bootstrap() {
     logger.debug("Menerima WebSocket payload:", msg?.e || "event");
   });
 
-  // 3. Jalankan Monitoring Posisi Terbuka 24/7 (setiap 15 detik)
+  // 3. Jalankan Monitoring Posisi Terbuka 24/7 Perdana
   logger.info("Memulai background worker pemantauan posisi...");
   await checkPositions();
-  monitorTimer = setInterval(async () => {
-    await checkPositions();
-  }, config.monitorIntervalSeconds * 1000);
 
   // 4. Jadwalkan update berkala status posisi terbuka (setiap 10 menit jika ada posisi terbuka)
   updatePositionsTimer = setInterval(async () => {
@@ -163,10 +192,8 @@ async function bootstrap() {
   logger.info("Menjalankan siklus pemindaian pasar perdana...");
   await executeScanCycle();
 
-  // 7. Jadwalkan Siklus Pemindaian Rutin (setiap X menit)
-  scanTimer = setInterval(async () => {
-    await executeScanCycle();
-  }, config.scanIntervalMinutes * 60 * 1000);
+  // 7. Jadwalkan Interval Rutin Dinamis Sesuai Preset
+  restartIntervalTimers();
 
   logger.success("Seluruh modul bot telah aktif dan berjalan 24 jam!");
 }

@@ -52,6 +52,7 @@ export interface DailyStats {
 
 export interface BotState {
   isAutoTradePaused: boolean;
+  tradingMode: "scalping" | "daytrade";
   telegramChatId: string;
   managedPositions: Record<string, ManagedPosition>;
   cooldowns: Record<string, number>; // symbol -> unix timestamp ms
@@ -69,6 +70,7 @@ function getTodayString(): string {
 function getDefaultState(): BotState {
   return {
     isAutoTradePaused: false,
+    tradingMode: (process.env.TRADING_MODE as "scalping" | "daytrade") || "daytrade",
     telegramChatId: "",
     managedPositions: {},
     cooldowns: {},
@@ -160,6 +162,15 @@ class StorageManager {
 
   public isPaused(): boolean {
     return this.state.isAutoTradePaused;
+  }
+
+  public getTradingMode(): "scalping" | "daytrade" {
+    return this.state.tradingMode || (process.env.TRADING_MODE as "scalping" | "daytrade") || "daytrade";
+  }
+
+  public setTradingMode(mode: "scalping" | "daytrade") {
+    this.state.tradingMode = mode;
+    this.saveState();
   }
 
   public setCooldown(symbol: string, minutes: number) {
