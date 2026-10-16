@@ -171,7 +171,7 @@ export const config: BotConfig = {
   maxConcurrentPositions: parseEnvNumber("MAX_CONCURRENT_POSITIONS", 5),
   riskPerTradePercent: parseEnvNumber("RISK_PER_TRADE_PERCENT", 2.0),
   maxDailyDrawdownPercent: parseEnvNumber("MAX_DAILY_DRAWDOWN_PERCENT", 5.0),
-  maxPositionNotionalPercent: parseEnvNumber("MAX_POSITION_NOTIONAL_PERCENT", 100),
+  maxPositionNotionalPercent: parseEnvNumber("MAX_POSITION_NOTIONAL_PERCENT", 25),
   cooldownMinutesAfterLoss: parseEnvNumber("COOLDOWN_MINUTES_AFTER_LOSS", 45),
 
   rrRatio: parseEnvNumber("RR_RATIO", 1.5),

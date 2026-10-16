@@ -52,6 +52,12 @@ export function evaluateStrategy(
     return null;
   }
 
+  // Hindari open posisi baru di 4 menit terakhir jam (menit 56-59) karena level ORB akan segera di-reset di jam baru
+  const minuteOfHour = new Date(lastCandle.time).getUTCMinutes();
+  if (minuteOfHour >= 56) {
+    return null;
+  }
+
   const minScoreThreshold = 70;
   let signal: {
     side: "BUY" | "SELL";
@@ -71,8 +77,9 @@ export function evaluateStrategy(
   const hasSellingAbsorption =
     aggression.type === "SELLING_ABSORPTION" ||
     (prevAggression && prevAggression.type === "SELLING_ABSORPTION");
+  // Pastikan harga masih di paruh atas range (>= orMid) agar Risk:Reward ke OR Low tetap sehat
   const isRejectedDown =
-    currentPrice <= orHigh * 1.002 && lastCandle.close < lastCandle.high;
+    currentPrice >= orMid && currentPrice <= orHigh * 1.002 && lastCandle.close < lastCandle.high;
 
   if (sweptHigh && hasSellingAbsorption && isRejectedDown) {
     const reasons: string[] = [
@@ -110,8 +117,9 @@ export function evaluateStrategy(
   const hasBuyingAbsorption =
     aggression.type === "BUYING_ABSORPTION" ||
     (prevAggression && prevAggression.type === "BUYING_ABSORPTION");
+  // Pastikan harga masih di paruh bawah range (<= orMid) agar Risk:Reward ke OR High tetap sehat
   const isRejectedUp =
-    currentPrice >= orLow * 0.998 && lastCandle.close > lastCandle.low;
+    currentPrice <= orMid && currentPrice >= orLow * 0.998 && lastCandle.close > lastCandle.low;
 
   if (!signal && sweptLow && hasBuyingAbsorption && isRejectedUp) {
     const reasons: string[] = [
@@ -236,6 +244,12 @@ export function evaluateStrategy(
 
   const riskRewardRatio =
     Math.abs(signal.tp - currentPrice) / Math.max(slDistance, 0.000001);
+
+  // Wajib memiliki Risk:Reward minimal sesuai konfigurasi (misal min 1.2R)
+  const minRequiredRR = Math.min(config.rrRatio, 1.2);
+  if (riskRewardRatio < minRequiredRR) {
+    return null;
+  }
 
   return {
     symbol,
