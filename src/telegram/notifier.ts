@@ -1,3 +1,4 @@
+import { InputFile } from "grammy";
 import { config, getActivePreset } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
@@ -38,6 +39,30 @@ export async function sendMessage(text: string): Promise<void> {
   }
 }
 
+export async function sendPhoto(photo: Buffer, caption: string): Promise<void> {
+  const chatId = getTargetChatId();
+  if (!chatId || !config.telegramBotToken) {
+    logger.debug("Telegram Chat ID atau Bot Token belum diset, notifikasi foto dilewati.");
+    return;
+  }
+
+  try {
+    if (caption.length <= 1024) {
+      await bot.api.sendPhoto(chatId, new InputFile(photo, "snapshot.png"), {
+        caption,
+        parse_mode: "HTML",
+      });
+    } else {
+      // Telegram caption limit 1024 char. Kirim foto dahulu, lalu kirim teks lengkap
+      await bot.api.sendPhoto(chatId, new InputFile(photo, "snapshot.png"));
+      await sendMessage(caption);
+    }
+  } catch (err: any) {
+    logger.warn(`Gagal mengirim foto Telegram: ${err?.message || err}. Fallback ke pesan teks...`);
+    await sendMessage(caption);
+  }
+}
+
 export async function notifyBotStarted(): Promise<void> {
   const envText = config.bingxEnv === "prod-live" ? "🔴 <b>LIVE (Real Funds)</b>" : "🟢 <b>VST (Simulasi Virtual)</b>";
   const preset = getActivePreset();
@@ -69,6 +94,7 @@ export async function notifyNewOrder(data: {
   requiredMargin: number;
   score: number;
   reasons: string[];
+  chartBuffer?: Buffer | null;
 }): Promise<void> {
   const icon = data.positionSide === "LONG" ? "🟢" : "🔴";
   const reasonsList = data.reasons.map((r) => `  - ${escapeHtml(r)}`).join("\n");
@@ -94,7 +120,11 @@ export async function notifyNewOrder(data: {
     `• <b>Skor Sinyal:</b> ${data.score}/100\n\n` +
     `<b>Alasan Eksekusi:</b>\n${reasonsList}`;
 
-  await sendMessage(msg);
+  if (data.chartBuffer && data.chartBuffer.length > 0) {
+    await sendPhoto(data.chartBuffer, msg);
+  } else {
+    await sendMessage(msg);
+  }
 }
 
 export async function notifyTradeClosed(data: {
@@ -109,6 +139,7 @@ export async function notifyTradeClosed(data: {
   pnlUsdt?: number;
   pnlPercent: number;
   reason: string;
+  chartBuffer?: Buffer | null;
 }): Promise<void> {
   const finalNetProfit = data.netProfit !== undefined ? data.netProfit : (data.pnlUsdt ?? 0);
   const grossRealized = data.realizedPnl !== undefined ? data.realizedPnl : finalNetProfit;
@@ -139,7 +170,11 @@ export async function notifyTradeClosed(data: {
     `• <b>Net Profit (Bersih):</b> <b>${netSign}$${finalNetProfit.toFixed(2)} USDT (${percentSign}${data.pnlPercent.toFixed(2)}%)</b>\n` +
     `• <b>Pemicu Tutup:</b> <code>${data.reason}</code>`;
 
-  await sendMessage(msg);
+  if (data.chartBuffer && data.chartBuffer.length > 0) {
+    await sendPhoto(data.chartBuffer, msg);
+  } else {
+    await sendMessage(msg);
+  }
 }
 
 export async function notifyBreakEvenActivated(

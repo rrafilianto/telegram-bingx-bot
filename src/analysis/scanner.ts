@@ -2,6 +2,7 @@ import { getAllTickers, getKlines } from "../bingx/market.js";
 import { analyzeKlines } from "./technical.js";
 import { getMarketSentiment } from "./sentiment.js";
 import { evaluateStrategy, TradeSignal } from "./strategy.js";
+import { generateChartSnapshot } from "../utils/chartRenderer.js";
 import { config, getActivePreset } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
@@ -71,6 +72,22 @@ export async function runMarketScan(): Promise<TradeSignal[]> {
         logger.trade(
           `Sinyal terdeteksi! [${signal.positionSide}] ${signal.symbol} (Skor: ${signal.score}) Entry: ${signal.entryPrice} SL: ${signal.stopLossPrice} TP: ${signal.takeProfitPrice}`
         );
+
+        // Generate Visual Chart Snapshot TradingView Style
+        try {
+          const chartBuffer = generateChartSnapshot({
+            symbol: item.symbol,
+            timeframe: preset.timeframePrimary,
+            klines: klinesPrimary,
+            orb: taPrimary.orb,
+            signal,
+            aggression: taPrimary.aggression,
+          });
+          signal.chartBuffer = chartBuffer;
+        } catch (chartErr) {
+          logger.debug("Gagal membuat chart snapshot untuk sinyal:", chartErr);
+        }
+
         signals.push(signal);
       }
 

@@ -7,10 +7,11 @@ import {
   SwapOrder,
   ClosedPositionRecord,
 } from "../bingx/trade.js";
-import { getPremiumIndex } from "../bingx/market.js";
-import { config } from "../config.js";
+import { getPremiumIndex, getKlines } from "../bingx/market.js";
+import { config, getActivePreset } from "../config.js";
 import { storage, ManagedPosition } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
+import { generateTradeCloseChart } from "../utils/chartRenderer.js";
 import {
   notifyTradeClosed,
   notifyBreakEvenActivated,
@@ -228,6 +229,32 @@ export async function checkPositions(): Promise<void> {
         // Bersihkan tracking
         storage.removeManagedPosition(symbol);
 
+        // Generate Trade Lifecycle Chart Snapshot
+        let chartBuffer: Buffer | null = null;
+        try {
+          const preset = getActivePreset();
+          const closeKlines = await getKlines(symbol, preset.timeframePrimary, 35);
+          chartBuffer = generateTradeCloseChart({
+            symbol,
+            timeframe: preset.timeframePrimary,
+            klines: closeKlines,
+            side: managed.positionSide,
+            entryPrice: managed.entryPrice,
+            exitPrice,
+            initialSl: managed.initialSl,
+            openedAt: managed.openedAt,
+            closedAt: Date.now(),
+            netProfit,
+            pnlPercent,
+            realizedPnl,
+            commission,
+            reason,
+            leverage: managed.leverage,
+          });
+        } catch (chartErr: any) {
+          logger.warn(`Gagal membuat chart close posisi untuk ${symbol}: ${chartErr?.message || chartErr}`);
+        }
+
         // Notifikasi Telegram
         await notifyTradeClosed({
           symbol,
@@ -240,6 +267,7 @@ export async function checkPositions(): Promise<void> {
           netProfit,
           pnlPercent,
           reason,
+          chartBuffer,
         });
       }
     }

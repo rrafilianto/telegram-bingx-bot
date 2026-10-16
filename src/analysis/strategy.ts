@@ -15,6 +15,7 @@ export interface TradeSignal {
   atr: number;
   riskRewardRatio: number;
   reasons: string[];
+  chartBuffer?: Buffer | null;
 }
 
 /**

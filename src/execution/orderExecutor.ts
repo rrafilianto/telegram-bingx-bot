@@ -93,6 +93,7 @@ export async function executeTrade(
       requiredMargin: sizing.requiredMarginUsdt,
       score: signal.score,
       reasons: signal.reasons,
+      chartBuffer: signal.chartBuffer,
     });
 
     return true;

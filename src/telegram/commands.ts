@@ -1,9 +1,10 @@
-import { Bot, InlineKeyboard } from "grammy";
+import { Bot, InlineKeyboard, InputFile } from "grammy";
 import { getBalance, getPositions } from "../bingx/account.js";
 import { closePositionMarket } from "../bingx/trade.js";
 import { getMarketSentiment } from "../analysis/sentiment.js";
 import { runMarketScan } from "../analysis/scanner.js";
 import { checkCircuitBreaker } from "../execution/riskManager.js";
+import { checkPositions } from "../execution/positionMonitor.js";
 import { config, getActivePreset, setTradingMode, TradingMode } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
@@ -397,6 +398,14 @@ export function registerBotCommands(bot: Bot) {
       }
 
       await ctx.reply(text, { parse_mode: "HTML" });
+
+      const topSignal = signals[0];
+      if (topSignal && topSignal.chartBuffer && topSignal.chartBuffer.length > 0) {
+        await ctx.replyWithPhoto(new InputFile(topSignal.chartBuffer, `${topSignal.symbol}_snapshot.png`), {
+          caption: `📊 <b>Visual Chart Setup: ${topSignal.symbol} (${topSignal.positionSide})</b>\n• Strategi: Hourly ORB + Aggression Mark\n• Score: ${topSignal.score}/100 | SL: $${topSignal.stopLossPrice} | TP: $${topSignal.takeProfitPrice}`,
+          parse_mode: "HTML",
+        });
+      }
     } catch (err: any) {
       await ctx.reply(`❌ Error saat pemindaian: ${err?.message || err}`);
     }
@@ -469,12 +478,14 @@ export function registerBotCommands(bot: Bot) {
       try {
         await ctx.answerCallbackQuery({ text: `Menutup posisi ${symbol}...` });
         await closePositionMarket({ symbol, positionSide, quantity });
-        storage.removeManagedPosition(symbol);
 
         await ctx.editMessageText(
-          `✅ <b>Posisi ${symbol} (${positionSide}) berhasil ditutup secara manual!</b>`,
+          `✅ <b>Posisi ${symbol} (${positionSide}) berhasil ditutup secara manual!</b>\n<i>Membuat visual recap & kalkulasi PnL...</i>`,
           { parse_mode: "HTML" }
         );
+
+        // Beri jeda 1.2 detik agar server BingX memperbarui riwayat order, lalu buat visual recap
+        setTimeout(() => checkPositions().catch(() => {}), 1200);
       } catch (err: any) {
         logger.error(`Gagal menutup posisi ${symbol}:`, err);
         await ctx.reply(`❌ Gagal menutup posisi ${symbol}: ${err?.message || err}`);
