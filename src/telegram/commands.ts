@@ -1,6 +1,6 @@
 import { Bot, InlineKeyboard, InputFile } from "grammy";
-import { getBalance, getPositions } from "../bingx/account.js";
-import { closePositionMarket } from "../bingx/trade.js";
+import { getBalance, getPositions, PositionData } from "../bingx/account.js";
+import { closePositionMarket, placeStopLossOrder, placeTrailingStopOrder } from "../bingx/trade.js";
 import { getMarketSentiment } from "../analysis/sentiment.js";
 import { runMarketScan } from "../analysis/scanner.js";
 import { checkCircuitBreaker } from "../execution/riskManager.js";
@@ -261,6 +261,61 @@ export function registerBotCommands(bot: Bot) {
     }
   });
 
+function buildPositionCard(pos: PositionData): { text: string; keyboard: InlineKeyboard } {
+  const sideIcon = pos.positionSide === "LONG" ? "🟢" : "🔴";
+  const amt = Math.abs(parseFloat(pos.positionAmt));
+  const entry = parseFloat(pos.avgPrice) || parseFloat(pos.entryPrice);
+  const mark = parseFloat(pos.markPrice) || 0;
+  const unPnl = parseFloat(pos.unrealizedProfit) || 0;
+  const pnlSign = unPnl >= 0 ? "+" : "";
+  const pnlIcon = unPnl >= 0 ? "🟢" : "🔴";
+  const liq = parseFloat(String(pos.liquidationPrice)) || 0;
+  const marginMode = pos.marginType || (pos.isolated ? "ISOLATED" : "CROSSED");
+
+  const managed = storage.getManagedPosition(pos.symbol);
+  const slText = managed && (managed.currentSl || managed.initialSl)
+    ? `$${managed.currentSl || managed.initialSl}`
+    : "-";
+
+  const beStatus = managed
+    ? (managed.isBreakEvenApplied ? "✅ Sudah Aktif" : "⏳ Belum Aktif")
+    : "-";
+
+  let tpText = "-";
+  let trailingStatus = "-";
+  if (managed && managed.trailingActivationPrice && managed.trailingCallbackRate) {
+    const cb = (managed.trailingCallbackRate * 100).toFixed(1);
+    tpText = `Trailing Stop (CB ${cb}%)`;
+    trailingStatus = managed.isTrailingActive
+      ? "🚀 Sudah Aktif (Running)"
+      : `⏳ Belum Aktif (Target $${managed.trailingActivationPrice})`;
+  } else if (managed && managed.initialTp) {
+    tpText = `$${managed.initialTp}`;
+    trailingStatus = "❌ Tidak Digunakan (Fixed TP)";
+  }
+
+  const text =
+    `${sideIcon} <b>${pos.symbol}</b> (${pos.positionSide})\n\n` +
+    `• <b>Jumlah:</b> ${amt} koin (${pos.leverage}x ${marginMode})\n` +
+    `• <b>Entry:</b> $${entry}\n` +
+    `• <b>Mark Price:</b> $${mark}\n` +
+    `• <b>Stop Loss:</b> ${slText}\n` +
+    `• <b>Break-Even:</b> <b>${beStatus}</b>\n` +
+    `• <b>Take Profit:</b> ${tpText}\n` +
+    `• <b>Trailing TP:</b> <b>${trailingStatus}</b>\n` +
+    `• <b>Floating PnL:</b> ${pnlIcon} <b>${pnlSign}$${unPnl.toFixed(2)} USDT</b>\n` +
+    `• <b>Harga Likuidasi:</b> $${liq}`;
+
+  const keyboard = new InlineKeyboard()
+    .text("🛡️ Set Break-Even", `be_${pos.symbol}`)
+    .text("🚀 Aktifkan Trailing TP", `trailing_${pos.symbol}`)
+    .row()
+    .text(`❌ Tutup Posisi`, `close_${pos.symbol}_${pos.positionSide}_${amt}`)
+    .text(`🔄 Refresh Status`, `refresh_${pos.symbol}`);
+
+  return { text, keyboard };
+}
+
   // /positions
   bot.command("positions", async (ctx) => {
     try {
@@ -271,55 +326,7 @@ export function registerBotCommands(bot: Bot) {
       }
 
       for (const pos of positions) {
-        const sideIcon = pos.positionSide === "LONG" ? "🟢" : "🔴";
-        const amt = Math.abs(parseFloat(pos.positionAmt));
-        const entry = parseFloat(pos.avgPrice) || parseFloat(pos.entryPrice);
-        const mark = parseFloat(pos.markPrice) || 0;
-        const unPnl = parseFloat(pos.unrealizedProfit) || 0;
-        const pnlSign = unPnl >= 0 ? "+" : "";
-        const pnlIcon = unPnl >= 0 ? "🟢" : "🔴";
-        const liq = parseFloat(String(pos.liquidationPrice)) || 0;
-        const marginMode = pos.marginType || (pos.isolated ? "ISOLATED" : "CROSSED");
-
-        const managed = storage.getManagedPosition(pos.symbol);
-        const slText = managed && (managed.currentSl || managed.initialSl)
-          ? `$${managed.currentSl || managed.initialSl}`
-          : "-";
-
-        const beStatus = managed
-          ? (managed.isBreakEvenApplied ? "✅ Sudah Aktif" : "⏳ Belum Aktif")
-          : "-";
-
-        let tpText = "-";
-        let trailingStatus = "-";
-        if (managed && managed.trailingActivationPrice && managed.trailingCallbackRate) {
-          const cb = (managed.trailingCallbackRate * 100).toFixed(1);
-          tpText = `Trailing Stop (CB ${cb}%)`;
-          trailingStatus = managed.isTrailingActive
-            ? "🚀 Sudah Aktif (Running)"
-            : `⏳ Belum Aktif (Target $${managed.trailingActivationPrice})`;
-        } else if (managed && managed.initialTp) {
-          tpText = `$${managed.initialTp}`;
-          trailingStatus = "❌ Tidak Digunakan (Fixed TP)";
-        }
-
-        const text =
-          `${sideIcon} <b>${pos.symbol}</b> (${pos.positionSide})\n\n` +
-          `• <b>Jumlah:</b> ${amt} koin (${pos.leverage}x ${marginMode})\n` +
-          `• <b>Entry:</b> $${entry}\n` +
-          `• <b>Mark Price:</b> $${mark}\n` +
-          `• <b>Stop Loss:</b> ${slText}\n` +
-          `• <b>Break-Even:</b> <b>${beStatus}</b>\n` +
-          `• <b>Take Profit:</b> ${tpText}\n` +
-          `• <b>Trailing TP:</b> <b>${trailingStatus}</b>\n` +
-          `• <b>Floating PnL:</b> ${pnlIcon} <b>${pnlSign}$${unPnl.toFixed(2)} USDT</b>\n` +
-          `• <b>Harga Likuidasi:</b> $${liq}`;
-
-        const keyboard = new InlineKeyboard().text(
-          `❌ Tutup Posisi ${pos.symbol}`,
-          `close_${pos.symbol}_${pos.positionSide}_${amt}`
-        );
-
+        const { text, keyboard } = buildPositionCard(pos);
         await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboard });
       }
     } catch (err: any) {
@@ -465,6 +472,170 @@ export function registerBotCommands(bot: Bot) {
         await ctx.editMessageText(updatedText, { parse_mode: "HTML", reply_markup: keyboard });
       } catch {
         await ctx.reply(updatedText, { parse_mode: "HTML", reply_markup: keyboard });
+      }
+      return;
+    }
+
+    if (data.startsWith("be_")) {
+      const symbol = data.split("_")[1];
+      try {
+        await ctx.answerCallbackQuery({ text: `Memproses Break-Even untuk ${symbol}...` });
+        const positions = await getPositions(symbol, true);
+        const livePos = positions.find((p) => p.symbol === symbol);
+        if (!livePos || Math.abs(parseFloat(livePos.positionAmt)) === 0) {
+          await ctx.answerCallbackQuery({ text: "Posisi sudah tidak aktif atau tertutup." });
+          return;
+        }
+
+        let managed = storage.getManagedPosition(symbol);
+        const entryPrice = parseFloat(livePos.avgPrice) || parseFloat(livePos.entryPrice) || (managed?.entryPrice ?? 0);
+        const side = (livePos.positionSide as "LONG" | "SHORT") || managed?.positionSide || "LONG";
+        const quantity = Math.abs(parseFloat(livePos.positionAmt));
+
+        // Buffer 0.12% untuk meng-cover komisi taker roundtrip (open + close + slippage)
+        const bePrice = side === "LONG"
+          ? Number((entryPrice * 1.0012).toFixed(6))
+          : Number((entryPrice * 0.9988).toFixed(6));
+
+        await placeStopLossOrder({
+          symbol,
+          positionSide: side,
+          quantity,
+          stopPrice: bePrice,
+        });
+
+        if (!managed) {
+          managed = {
+            symbol,
+            positionSide: side,
+            entryPrice,
+            quantity,
+            leverage: livePos.leverage || config.defaultLeverage,
+            initialSl: bePrice,
+            currentSl: bePrice,
+            initialTp: 0,
+            isBreakEvenApplied: true,
+            highestPrice: entryPrice,
+            lowestPrice: entryPrice,
+            openedAt: Date.now(),
+          };
+        } else {
+          managed.isBreakEvenApplied = true;
+          managed.currentSl = bePrice;
+        }
+        storage.saveManagedPosition(managed);
+
+        await ctx.reply(
+          `🛡️ <b>BREAK-EVEN BERHASIL DIAKTIFKAN!</b>\n\n` +
+          `• <b>Token:</b> <code>${symbol}</code> (${side})\n` +
+          `• <b>Stop Loss Baru:</b> $${bePrice} (Entry + 0.12% Taker Fee Buffer)\n` +
+          `<i>Trade ini sekarang bebas risiko (Risk-Free).</i>`,
+          { parse_mode: "HTML" }
+        );
+
+        try {
+          const updated = buildPositionCard(livePos);
+          await ctx.editMessageText(updated.text, { parse_mode: "HTML", reply_markup: updated.keyboard });
+        } catch {}
+      } catch (err: any) {
+        logger.error(`Gagal memindahkan SL ke Break-Even untuk ${symbol}:`, err);
+        await ctx.reply(`❌ Gagal mengaktifkan Break-Even: ${err?.message || err}`);
+      }
+      return;
+    }
+
+    if (data.startsWith("trailing_")) {
+      const symbol = data.split("_")[1];
+      try {
+        await ctx.answerCallbackQuery({ text: `Mengaktifkan Trailing TP untuk ${symbol}...` });
+        const positions = await getPositions(symbol, true);
+        const livePos = positions.find((p) => p.symbol === symbol);
+        if (!livePos || Math.abs(parseFloat(livePos.positionAmt)) === 0) {
+          await ctx.answerCallbackQuery({ text: "Posisi sudah tidak aktif atau tertutup." });
+          return;
+        }
+
+        let managed = storage.getManagedPosition(symbol);
+        const side = (livePos.positionSide as "LONG" | "SHORT") || managed?.positionSide || "LONG";
+        const quantity = Math.abs(parseFloat(livePos.positionAmt));
+        const markPrice = parseFloat(livePos.markPrice) || parseFloat(livePos.avgPrice) || 0;
+        const preset = getActivePreset();
+        const callbackRate = managed?.trailingCallbackRate || preset.trailingMinCallbackRate || 0.01;
+
+        // Pasang order Trailing Stop Market ke BingX
+        await placeTrailingStopOrder({
+          symbol,
+          positionSide: side,
+          quantity,
+          activationPrice: markPrice,
+          priceRate: callbackRate,
+        });
+
+        if (!managed) {
+          managed = {
+            symbol,
+            positionSide: side,
+            entryPrice: markPrice,
+            quantity,
+            leverage: livePos.leverage || config.defaultLeverage,
+            initialSl: 0,
+            currentSl: 0,
+            initialTp: 0,
+            isBreakEvenApplied: false,
+            isTrailingActive: true,
+            trailingActivationPrice: markPrice,
+            trailingCallbackRate: callbackRate,
+            highestPrice: markPrice,
+            lowestPrice: markPrice,
+            openedAt: Date.now(),
+          };
+        } else {
+          managed.isTrailingActive = true;
+          managed.trailingActivationPrice = markPrice;
+          managed.trailingCallbackRate = callbackRate;
+        }
+        storage.saveManagedPosition(managed);
+
+        const cbPercent = (callbackRate * 100).toFixed(1);
+        await ctx.reply(
+          `🚀 <b>TRAILING TAKE PROFIT DIAKTIFKAN!</b>\n\n` +
+          `• <b>Token:</b> <code>${symbol}</code> (${side})\n` +
+          `• <b>Harga Aktivasi:</b> $${markPrice} (Harga Saat Ini)\n` +
+          `• <b>Callback Rate:</b> ${cbPercent}%\n` +
+          `<i>Server BingX akan mengunci keuntungan secara dinamis mengikuti puncak harga!</i>`,
+          { parse_mode: "HTML" }
+        );
+
+        try {
+          const updated = buildPositionCard(livePos);
+          await ctx.editMessageText(updated.text, { parse_mode: "HTML", reply_markup: updated.keyboard });
+        } catch {}
+      } catch (err: any) {
+        logger.error(`Gagal mengaktifkan Trailing TP manual untuk ${symbol}:`, err);
+        await ctx.reply(`❌ Gagal mengaktifkan Trailing TP: ${err?.message || err}`);
+      }
+      return;
+    }
+
+    if (data.startsWith("refresh_")) {
+      const symbol = data.split("_")[1];
+      try {
+        await ctx.answerCallbackQuery({ text: `Memperbarui status ${symbol}...` });
+        const positions = await getPositions(symbol, true);
+        const livePos = positions.find((p) => p.symbol === symbol);
+        if (!livePos || Math.abs(parseFloat(livePos.positionAmt)) === 0) {
+          await ctx.editMessageText(
+            `ℹ️ <b>Posisi ${symbol} saat ini sudah tidak aktif / tertutup.</b>`,
+            { parse_mode: "HTML" }
+          );
+          return;
+        }
+
+        const updated = buildPositionCard(livePos);
+        await ctx.editMessageText(updated.text, { parse_mode: "HTML", reply_markup: updated.keyboard });
+      } catch (err: any) {
+        logger.debug(`Refresh error: ${err?.message || err}`);
+        await ctx.answerCallbackQuery({ text: "Gagal memperbarui status posisi." });
       }
       return;
     }

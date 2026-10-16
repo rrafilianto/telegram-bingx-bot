@@ -1,4 +1,4 @@
-import { InputFile } from "grammy";
+import { InputFile, InlineKeyboard } from "grammy";
 import { config, getActivePreset } from "../config.js";
 import { storage } from "../utils/storage.js";
 import { logger } from "../utils/logger.js";
@@ -18,7 +18,7 @@ function getTargetChatId(): string {
   return config.telegramChatId || storage.getChatId();
 }
 
-export async function sendMessage(text: string): Promise<void> {
+export async function sendMessage(text: string, replyMarkup?: InlineKeyboard): Promise<void> {
   const chatId = getTargetChatId();
   if (!chatId || !config.telegramBotToken) {
     logger.debug("Telegram Chat ID atau Bot Token belum diset, notifikasi dilewati.");
@@ -26,20 +26,24 @@ export async function sendMessage(text: string): Promise<void> {
   }
 
   try {
-    await bot.api.sendMessage(chatId, text, { parse_mode: "HTML" });
+    await bot.api.sendMessage(chatId, text, { parse_mode: "HTML", reply_markup: replyMarkup });
   } catch (err: any) {
     logger.warn(`Gagal mengirim pesan Telegram (HTML): ${err?.message || err}. Mencoba kirim plain text...`);
     try {
       // Fallback: bersihkan tag HTML dan kirim sebagai plain text agar notifikasi tidak hilang
       const plainText = text.replace(/<[^>]*>/g, "");
-      await bot.api.sendMessage(chatId, plainText);
+      await bot.api.sendMessage(chatId, plainText, { reply_markup: replyMarkup });
     } catch (e2: any) {
       logger.error(`Gagal mengirim pesan Telegram (fallback plain text): ${e2?.message || e2}`);
     }
   }
 }
 
-export async function sendPhoto(photo: Buffer, caption: string): Promise<void> {
+export async function sendPhoto(
+  photo: Buffer,
+  caption: string,
+  replyMarkup?: InlineKeyboard
+): Promise<void> {
   const chatId = getTargetChatId();
   if (!chatId || !config.telegramBotToken) {
     logger.debug("Telegram Chat ID atau Bot Token belum diset, notifikasi foto dilewati.");
@@ -51,15 +55,16 @@ export async function sendPhoto(photo: Buffer, caption: string): Promise<void> {
       await bot.api.sendPhoto(chatId, new InputFile(photo, "snapshot.png"), {
         caption,
         parse_mode: "HTML",
+        reply_markup: replyMarkup,
       });
     } else {
-      // Telegram caption limit 1024 char. Kirim foto dahulu, lalu kirim teks lengkap
+      // Telegram caption limit 1024 char. Kirim foto dahulu, lalu kirim teks lengkap dengan tombol
       await bot.api.sendPhoto(chatId, new InputFile(photo, "snapshot.png"));
-      await sendMessage(caption);
+      await sendMessage(caption, replyMarkup);
     }
   } catch (err: any) {
     logger.warn(`Gagal mengirim foto Telegram: ${err?.message || err}. Fallback ke pesan teks...`);
-    await sendMessage(caption);
+    await sendMessage(caption, replyMarkup);
   }
 }
 
@@ -120,10 +125,17 @@ export async function notifyNewOrder(data: {
     `• <b>Skor Sinyal:</b> ${data.score}/100\n\n` +
     `<b>Alasan Eksekusi:</b>\n${reasonsList}`;
 
+  const keyboard = new InlineKeyboard()
+    .text("🛡️ Set Break-Even", `be_${data.symbol}`)
+    .text("🚀 Aktifkan Trailing TP", `trailing_${data.symbol}`)
+    .row()
+    .text(`❌ Tutup Posisi`, `close_${data.symbol}_${data.positionSide}_${data.quantity}`)
+    .text(`🔄 Refresh Status`, `refresh_${data.symbol}`);
+
   if (data.chartBuffer && data.chartBuffer.length > 0) {
-    await sendPhoto(data.chartBuffer, msg);
+    await sendPhoto(data.chartBuffer, msg, keyboard);
   } else {
-    await sendMessage(msg);
+    await sendMessage(msg, keyboard);
   }
 }
 
