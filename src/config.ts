@@ -1,8 +1,8 @@
-import dotenv from "dotenv";
-import { storage } from "./utils/storage.js";
+import dotenv from 'dotenv';
+import { storage } from './utils/storage.js';
 dotenv.config();
 
-export type TradingMode = "scalping" | "daytrade";
+export type TradingMode = 'scalping' | 'daytrade';
 
 export interface ModePreset {
   name: TradingMode;
@@ -29,15 +29,16 @@ export interface ModePreset {
 
 export const MODE_PRESETS: Record<TradingMode, ModePreset> = {
   daytrade: {
-    name: "daytrade",
-    label: "Session ORB Daytrade (5m)",
-    badge: "📊 ORB DAYTRADE",
-    description: "Opening Range Breakout (15m ORB) & Aggression Mark (Absorption) di timeframe 5m. Menangkap sweep likuiditas dan breakout terkonfirmasi volume.",
-    timeframePrimary: "5m",
-    timeframeTrend: "1h",
+    name: 'daytrade',
+    label: 'Session ORB Daytrade (5m)',
+    badge: '📊 ORB DAYTRADE',
+    description:
+      'Opening Range Breakout (15m ORB) & Aggression Mark (Absorption) di timeframe 5m. Menangkap sweep likuiditas dan breakout terkonfirmasi volume.',
+    timeframePrimary: '5m',
+    timeframeTrend: '1h',
     scanIntervalMinutes: 3,
     monitorIntervalSeconds: 15,
-    topVolumeLimit: 10,
+    topVolumeLimit: 15,
     orbMinutes: 15,
     absorptionThreshold: 1.5,
     absorptionLookback: 100,
@@ -48,18 +49,19 @@ export const MODE_PRESETS: Record<TradingMode, ModePreset> = {
     trailingActivationR: 1.5,
     trailingAtrMultiplier: 1.0,
     trailingMinCallbackRate: 0.005, // 0.5%
-    trailingMaxCallbackRate: 0.020, // 2.0%
+    trailingMaxCallbackRate: 0.02, // 2.0%
   },
   scalping: {
-    name: "scalping",
-    label: "Hourly ORB Scalp (1m)",
-    badge: "⚡ ORB SCALPING",
-    description: "Hourly Opening Range Breakout (6m ORB) & Aggression Mark (Absorption) di timeframe 1m. Menangkap sweep likuiditas dan reversal per jam.",
-    timeframePrimary: "1m",
-    timeframeTrend: "15m",
+    name: 'scalping',
+    label: 'Hourly ORB Scalp (1m)',
+    badge: '⚡ ORB SCALPING',
+    description:
+      'Hourly Opening Range Breakout (6m ORB) & Aggression Mark (Absorption) di timeframe 1m. Menangkap sweep likuiditas dan reversal per jam.',
+    timeframePrimary: '1m',
+    timeframeTrend: '15m',
     scanIntervalMinutes: 1,
     monitorIntervalSeconds: 5,
-    topVolumeLimit: 5,
+    topVolumeLimit: 10,
     orbMinutes: 6,
     absorptionThreshold: 1.5,
     absorptionLookback: 100,
@@ -70,7 +72,7 @@ export const MODE_PRESETS: Record<TradingMode, ModePreset> = {
     trailingActivationR: 1.2,
     trailingAtrMultiplier: 0.8,
     trailingMinCallbackRate: 0.003, // 0.3%
-    trailingMaxCallbackRate: 0.010, // 1.0%
+    trailingMaxCallbackRate: 0.01, // 1.0%
   },
 };
 
@@ -107,7 +109,7 @@ export interface BotConfig {
   // BingX Credentials & Environment
   bingxApiKey: string;
   bingxSecretKey: string;
-  bingxEnv: "prod-live" | "prod-vst";
+  bingxEnv: 'prod-live' | 'prod-vst';
 
   // Telegram Settings
   telegramBotToken: string;
@@ -115,13 +117,13 @@ export interface BotConfig {
 
   // Trading & Risk Parameters
   defaultLeverage: number;
-  marginType: "ISOLATED" | "CROSSED";
+  marginType: 'ISOLATED' | 'CROSSED';
   maxConcurrentPositions: number;
   riskPerTradePercent: number;
   maxDailyDrawdownPercent: number;
   maxPositionNotionalPercent: number;
   cooldownMinutesAfterLoss: number;
-  
+
   // Dynamic Scanner & Strategy Parameters (Resolved from Active Preset)
   scanIntervalMinutes: number;
   monitorIntervalSeconds: number;
@@ -147,7 +149,7 @@ export interface BotConfig {
   blacklistSymbols: string[];
 }
 
-function parseEnvString(key: string, defaultValue = ""): string {
+function parseEnvString(key: string, defaultValue = ''): string {
   return process.env[key]?.trim() || defaultValue;
 }
 
@@ -159,28 +161,35 @@ function parseEnvNumber(key: string, defaultValue: number): number {
 }
 
 export const config: BotConfig = {
-  bingxApiKey: parseEnvString("BINGX_API_KEY"),
-  bingxSecretKey: parseEnvString("BINGX_SECRET_KEY"),
-  bingxEnv: (parseEnvString("BINGX_ENV", "prod-vst") as "prod-live" | "prod-vst") || "prod-vst",
+  bingxApiKey: parseEnvString('BINGX_API_KEY'),
+  bingxSecretKey: parseEnvString('BINGX_SECRET_KEY'),
+  bingxEnv:
+    (parseEnvString('BINGX_ENV', 'prod-vst') as 'prod-live' | 'prod-vst') ||
+    'prod-vst',
 
-  telegramBotToken: parseEnvString("TELEGRAM_BOT_TOKEN"),
-  telegramChatId: parseEnvString("TELEGRAM_CHAT_ID"),
+  telegramBotToken: parseEnvString('TELEGRAM_BOT_TOKEN'),
+  telegramChatId: parseEnvString('TELEGRAM_CHAT_ID'),
 
-  defaultLeverage: parseEnvNumber("DEFAULT_LEVERAGE", 10),
-  marginType: (parseEnvString("MARGIN_TYPE", "ISOLATED") as "ISOLATED" | "CROSSED") || "ISOLATED",
-  maxConcurrentPositions: parseEnvNumber("MAX_CONCURRENT_POSITIONS", 5),
-  riskPerTradePercent: parseEnvNumber("RISK_PER_TRADE_PERCENT", 2.0),
-  maxDailyDrawdownPercent: parseEnvNumber("MAX_DAILY_DRAWDOWN_PERCENT", 5.0),
-  maxPositionNotionalPercent: parseEnvNumber("MAX_POSITION_NOTIONAL_PERCENT", 25),
-  cooldownMinutesAfterLoss: parseEnvNumber("COOLDOWN_MINUTES_AFTER_LOSS", 45),
+  defaultLeverage: parseEnvNumber('DEFAULT_LEVERAGE', 10),
+  marginType:
+    (parseEnvString('MARGIN_TYPE', 'ISOLATED') as 'ISOLATED' | 'CROSSED') ||
+    'ISOLATED',
+  maxConcurrentPositions: parseEnvNumber('MAX_CONCURRENT_POSITIONS', 5),
+  riskPerTradePercent: parseEnvNumber('RISK_PER_TRADE_PERCENT', 2.0),
+  maxDailyDrawdownPercent: parseEnvNumber('MAX_DAILY_DRAWDOWN_PERCENT', 5.0),
+  maxPositionNotionalPercent: parseEnvNumber(
+    'MAX_POSITION_NOTIONAL_PERCENT',
+    25,
+  ),
+  cooldownMinutesAfterLoss: parseEnvNumber('COOLDOWN_MINUTES_AFTER_LOSS', 45),
 
-  rrRatio: parseEnvNumber("RR_RATIO", 1.5),
-  trailingStopPercent: parseEnvNumber("TRAILING_STOP_PERCENT", 1.0),
-  dailySummaryHour: parseEnvNumber("DAILY_SUMMARY_HOUR", 8),
-  dailySummaryMinute: parseEnvNumber("DAILY_SUMMARY_MINUTE", 0),
-  timeZone: parseEnvString("TIME_ZONE", "Asia/Jakarta"),
-  blacklistSymbols: parseEnvString("BLACKLIST_SYMBOLS", "LUNA-USDT,USTC-USDT")
-    .split(",")
+  rrRatio: parseEnvNumber('RR_RATIO', 1.5),
+  trailingStopPercent: parseEnvNumber('TRAILING_STOP_PERCENT', 1.0),
+  dailySummaryHour: parseEnvNumber('DAILY_SUMMARY_HOUR', 8),
+  dailySummaryMinute: parseEnvNumber('DAILY_SUMMARY_MINUTE', 0),
+  timeZone: parseEnvString('TIME_ZONE', 'Asia/Jakarta'),
+  blacklistSymbols: parseEnvString('BLACKLIST_SYMBOLS', 'LUNA-USDT,USTC-USDT')
+    .split(',')
     .map((s) => s.trim().toUpperCase())
     .filter(Boolean),
 
@@ -239,15 +248,21 @@ export function validateConfig(): { valid: boolean; warnings: string[] } {
   const warnings: string[] = [];
 
   if (!config.bingxApiKey || !config.bingxSecretKey) {
-    warnings.push("BINGX_API_KEY atau BINGX_SECRET_KEY belum diisi di .env. Fitur trading akun tidak akan berfungsi.");
+    warnings.push(
+      'BINGX_API_KEY atau BINGX_SECRET_KEY belum diisi di .env. Fitur trading akun tidak akan berfungsi.',
+    );
   }
 
   if (!config.telegramBotToken) {
-    warnings.push("TELEGRAM_BOT_TOKEN belum diisi di .env. Bot Telegram tidak dapat mengirim pesan.");
+    warnings.push(
+      'TELEGRAM_BOT_TOKEN belum diisi di .env. Bot Telegram tidak dapat mengirim pesan.',
+    );
   }
 
   if (!config.telegramChatId) {
-    warnings.push("TELEGRAM_CHAT_ID belum diset. Bot akan mendeteksi Chat ID otomatis saat Anda mengetik /start di Telegram.");
+    warnings.push(
+      'TELEGRAM_CHAT_ID belum diset. Bot akan mendeteksi Chat ID otomatis saat Anda mengetik /start di Telegram.',
+    );
   }
 
   return {
