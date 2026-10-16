@@ -14,15 +14,18 @@ function buildModeMessage(): { text: string; keyboard: InlineKeyboard } {
   const currentPreset = getActivePreset();
 
   const text =
-    `🎛️ <b>PENGATURAN PRESET MODE TRADING</b>\n\n` +
+    `🎛️ <b>PENGATURAN PRESET STRATEGI TRADING</b>\n\n` +
     `Mode Aktif Saat Ini: <b>${currentPreset.badge}</b> (${currentPreset.label})\n` +
     `<i>${currentPreset.description}</i>\n\n` +
     `📋 <b>Parameter Mode ${currentPreset.label}:</b>\n` +
-    `• <b>Timeframe Eksekusi:</b> <code>${currentPreset.timeframePrimary}</code> (Macro Trend: <code>${currentPreset.timeframeTrend}</code>)\n` +
+    `• <b>Strategi:</b> <code>Aggression Mark + Hourly ORB</code>\n` +
+    `• <b>Timeframe Eksekusi:</b> <code>${currentPreset.timeframePrimary}</code> (Macro: <code>${currentPreset.timeframeTrend}</code>)\n` +
+    `• <b>Opening Range (ORB):</b> <code>${currentPreset.orbMinutes} menit pertama</code>\n` +
+    `• <b>Absorption Threshold:</b> <code>${currentPreset.absorptionThreshold}x StDev</code>\n` +
     `• <b>Interval Pemindaian:</b> Setiap <code>${currentPreset.scanIntervalMinutes} menit</code>\n` +
     `• <b>Target Token:</b> Top <code>${currentPreset.topVolumeLimit} Koin</code> Volume Tertinggi\n` +
     `• <b>Interval Monitor:</b> Setiap <code>${currentPreset.monitorIntervalSeconds} detik</code>\n` +
-    `• <b>Safety Stop Loss:</b> <code>${currentPreset.minSlPercent}% – ${currentPreset.maxSlPercent}%</code> (${currentPreset.atrMultiplierSl}x ATR)\n` +
+    `• <b>Safety Stop Loss:</b> <code>${currentPreset.minSlPercent}% – ${currentPreset.maxSlPercent}%</code>\n` +
     `• <b>Break-Even Trigger:</b> <code>+${currentPreset.breakEvenTriggerR}R</code>\n` +
     `• <b>Trailing TP Activation:</b> <code>+${currentPreset.trailingActivationR}R</code> (Callback: ${(currentPreset.trailingMinCallbackRate * 100).toFixed(1)}% – ${(currentPreset.trailingMaxCallbackRate * 100).toFixed(1)}%)\n\n` +
     `👇 <i>Klik salah satu tombol di bawah untuk beralih mode secara instan:</i>`;
@@ -30,14 +33,14 @@ function buildModeMessage(): { text: string; keyboard: InlineKeyboard } {
   const keyboard = new InlineKeyboard();
   if (currentMode === "scalping") {
     keyboard
-      .text("✅ ⚡ Scalping (Aktif)", "noop")
+      .text("✅ ⚡ ORB Scalp 1m (Aktif)", "noop")
       .row()
-      .text("📊 Switch ke Day Trade (15m)", "set_mode:daytrade");
+      .text("📊 Switch ke ORB Daytrade 5m", "set_mode:daytrade");
   } else {
     keyboard
-      .text("⚡ Switch ke Scalping (3m)", "set_mode:scalping")
+      .text("⚡ Switch ke ORB Scalp 1m", "set_mode:scalping")
       .row()
-      .text("✅ 📊 Day Trade (Aktif)", "noop");
+      .text("✅ 📊 ORB Daytrade 5m (Aktif)", "noop");
   }
 
   return { text, keyboard };

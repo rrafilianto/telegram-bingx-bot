@@ -14,6 +14,9 @@ export interface ModePreset {
   scanIntervalMinutes: number;
   monitorIntervalSeconds: number;
   topVolumeLimit: number;
+  orbMinutes: number;
+  absorptionThreshold: number;
+  absorptionLookback: number;
   minSlPercent: number;
   maxSlPercent: number;
   atrMultiplierSl: number;
@@ -22,49 +25,52 @@ export interface ModePreset {
   trailingAtrMultiplier: number;
   trailingMinCallbackRate: number;
   trailingMaxCallbackRate: number;
-  pullbackMaxDeviationPercent: number;
 }
 
 export const MODE_PRESETS: Record<TradingMode, ModePreset> = {
   daytrade: {
     name: "daytrade",
-    label: "Day Trade (15m)",
-    badge: "📊 DAY TRADE",
-    description: "Trend-following intraday. Entry 15m, konfirmasi tren 1h. Menangkap kelanjutan tren pasca-koreksi.",
-    timeframePrimary: "15m",
+    label: "Session ORB Daytrade (5m)",
+    badge: "📊 ORB DAYTRADE",
+    description: "Opening Range Breakout (15m ORB) & Aggression Mark (Absorption) di timeframe 5m. Menangkap sweep likuiditas dan breakout terkonfirmasi volume.",
+    timeframePrimary: "5m",
     timeframeTrend: "1h",
-    scanIntervalMinutes: 5,
+    scanIntervalMinutes: 3,
     monitorIntervalSeconds: 15,
-    topVolumeLimit: 15,
-    minSlPercent: 1.5,
-    maxSlPercent: 4.5,
-    atrMultiplierSl: 2.5,
+    topVolumeLimit: 10,
+    orbMinutes: 15,
+    absorptionThreshold: 1.5,
+    absorptionLookback: 100,
+    minSlPercent: 1.0,
+    maxSlPercent: 3.5,
+    atrMultiplierSl: 2.0,
     breakEvenTriggerR: 1.0,
     trailingActivationR: 1.5,
     trailingAtrMultiplier: 1.0,
-    trailingMinCallbackRate: 0.006, // 0.6%
-    trailingMaxCallbackRate: 0.025, // 2.5%
-    pullbackMaxDeviationPercent: 2.5, // 2.5%
+    trailingMinCallbackRate: 0.005, // 0.5%
+    trailingMaxCallbackRate: 0.020, // 2.0%
   },
   scalping: {
     name: "scalping",
-    label: "Scalping (3m)",
-    badge: "⚡ SCALPING",
-    description: "Eksekusi cepat 3m, filter tren 15m. Stop loss ketat, monitor agresif pada Top 5 koin paling likuid.",
-    timeframePrimary: "3m",
+    label: "Hourly ORB Scalp (1m)",
+    badge: "⚡ ORB SCALPING",
+    description: "Hourly Opening Range Breakout (6m ORB) & Aggression Mark (Absorption) di timeframe 1m. Menangkap sweep likuiditas dan reversal per jam.",
+    timeframePrimary: "1m",
     timeframeTrend: "15m",
     scanIntervalMinutes: 1,
     monitorIntervalSeconds: 5,
     topVolumeLimit: 5,
+    orbMinutes: 6,
+    absorptionThreshold: 1.5,
+    absorptionLookback: 100,
     minSlPercent: 0.5,
-    maxSlPercent: 1.5,
+    maxSlPercent: 2.0,
     atrMultiplierSl: 1.5,
     breakEvenTriggerR: 0.8,
     trailingActivationR: 1.2,
     trailingAtrMultiplier: 0.8,
-    trailingMinCallbackRate: 0.002, // 0.2%
-    trailingMaxCallbackRate: 0.008, // 0.8%
-    pullbackMaxDeviationPercent: 0.8, // 0.8%
+    trailingMinCallbackRate: 0.003, // 0.3%
+    trailingMaxCallbackRate: 0.010, // 1.0%
   },
 };
 
@@ -122,6 +128,9 @@ export interface BotConfig {
   topVolumeLimit: number;
   timeframePrimary: string;
   timeframeTrend: string;
+  orbMinutes: number;
+  absorptionThreshold: number;
+  absorptionLookback: number;
   rrRatio: number;
   atrMultiplierSl: number;
   minSlPercent: number;
@@ -190,6 +199,15 @@ export const config: BotConfig = {
   },
   get timeframeTrend() {
     return getActivePreset().timeframeTrend;
+  },
+  get orbMinutes() {
+    return getActivePreset().orbMinutes;
+  },
+  get absorptionThreshold() {
+    return getActivePreset().absorptionThreshold;
+  },
+  get absorptionLookback() {
+    return getActivePreset().absorptionLookback;
   },
   get atrMultiplierSl() {
     return getActivePreset().atrMultiplierSl;

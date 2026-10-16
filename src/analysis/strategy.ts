@@ -17,6 +17,12 @@ export interface TradeSignal {
   reasons: string[];
 }
 
+/**
+ * Evaluasi strategi Aggression Mark + Hourly ORB
+ * Menghasilkan sinyal trading berdasarkan:
+ * 1. Setup Reversal / Liquidity Sweep (Fading fakeout di OR High/Low dengan konfirmasi Whale Absorption)
+ * 2. Setup Clean Breakout Continuation (Penembusan tegas OR High/Low dengan konfirmasi lonjakan volume tanpa wick rejection)
+ */
 export function evaluateStrategy(
   symbol: string,
   taPrimary: TechnicalIndicators,
@@ -24,182 +30,225 @@ export function evaluateStrategy(
   sentiment: MarketSentiment
 ): TradeSignal | null {
   const preset = getActivePreset();
-  const reasons: string[] = [];
-  let longScore = 0;
-  let shortScore = 0;
 
-  const currentPrice = taPrimary.currentPrice;
-  const atr = taPrimary.atr14;
-
-  if (atr <= 0 || currentPrice <= 0) return null;
-
-  // 1. Analisis Tren Makro (Macro Trend Filter)
-  if (taTrend) {
-    if (taTrend.currentPrice > taTrend.ema50 && taTrend.ema9 > taTrend.ema21) {
-      longScore += 25;
-      reasons.push(`Tren ${preset.timeframeTrend} Bullish (Harga di atas EMA50)`);
-    } else if (taTrend.currentPrice < taTrend.ema50 && taTrend.ema9 < taTrend.ema21) {
-      shortScore += 25;
-      reasons.push(`Tren ${preset.timeframeTrend} Bearish (Harga di bawah EMA50)`);
-    }
+  if (!taPrimary || !taPrimary.orb || !taPrimary.orb.isFormed) {
+    return null;
   }
 
-  // 2. Analisis Struktur Tren Timeframe Primer
-  if (currentPrice > taPrimary.ema50 && taPrimary.ema21 > taPrimary.ema50) {
-    longScore += 20;
-    reasons.push(`Struktur ${preset.timeframePrimary} Uptrend (EMA21 > EMA50)`);
-  } else if (currentPrice < taPrimary.ema50 && taPrimary.ema21 < taPrimary.ema50) {
-    shortScore += 20;
-    reasons.push(`Struktur ${preset.timeframePrimary} Downtrend (EMA21 < EMA50)`);
+  // Jeda saat rentang pembukaan (Opening Range N menit pertama) sedang terbentuk
+  if (taPrimary.orb.inOpeningRange) {
+    return null;
   }
 
-  // 3. Konfirmasi Pullback & Rejection Timeframe Primer (Dinamis Sesuai Mode Preset)
-  const maxDev = preset.pullbackMaxDeviationPercent / 100;
-  const overextendedDev = (preset.pullbackMaxDeviationPercent * 1.4) / 100;
+  const { orHigh, orLow, orMid, rangePercent } = taPrimary.orb;
+  const { currentPrice, lastCandle, prevCandle, atr14, aggression, prevAggression } = taPrimary;
 
-  // LONG PULLBACK:
-  // - Low 3 candle terakhir sempat koreksi ke area EMA21/EMA50
-  // - Harga saat ini bertahan di atas EMA21
-  // - Deviasi harga tidak overextended di atas EMA21
-  // - Ada candle pantulan (rejection)
-  const isLongPullback =
-    taPrimary.recentLow3 <= taPrimary.ema21 * (1 + maxDev * 0.3) &&
-    currentPrice >= taPrimary.ema21 * (1 - maxDev * 0.2) &&
-    (currentPrice - taPrimary.ema21) / taPrimary.ema21 <= maxDev;
-
-  const isLongRejection =
-    currentPrice > taPrimary.lastCandle.open ||
-    taPrimary.prevCandle.close > taPrimary.prevCandle.open;
-
-  if (isLongPullback && isLongRejection) {
-    longScore += 30;
-    reasons.push(`Pullback ${preset.timeframePrimary} Terkonfirmasi (Memantul di area EMA21/EMA50)`);
-  } else if ((currentPrice - taPrimary.ema21) / taPrimary.ema21 > overextendedDev) {
-    // Penalti jika harga sudah terbang terlalu jauh (menghindari beli di pucuk)
-    longScore -= 25;
+  if (atr14 <= 0 || currentPrice <= 0 || orHigh <= orLow) {
+    return null;
   }
 
-  // SHORT PULLBACK:
-  // - High 3 candle terakhir sempat retest naik ke area EMA21/EMA50
-  // - Harga saat ini tertahan di bawah EMA21
-  // - Deviasi harga tidak overextended ke bawah
-  // - Ada candle penolakan ke bawah
-  const isShortPullback =
-    taPrimary.recentHigh3 >= taPrimary.ema21 * (1 - maxDev * 0.3) &&
-    currentPrice <= taPrimary.ema21 * (1 + maxDev * 0.2) &&
-    (taPrimary.ema21 - currentPrice) / taPrimary.ema21 <= maxDev;
-
-  const isShortRejection =
-    currentPrice < taPrimary.lastCandle.open ||
-    taPrimary.prevCandle.close < taPrimary.prevCandle.open;
-
-  if (isShortPullback && isShortRejection) {
-    shortScore += 30;
-    reasons.push(`Pullback ${preset.timeframePrimary} Terkonfirmasi (Tertolak di area EMA21/EMA50)`);
-  } else if ((taPrimary.ema21 - currentPrice) / taPrimary.ema21 > overextendedDev) {
-    // Penalti jika harga sudah dump terlalu jauh (menghindari short di dasar)
-    shortScore -= 25;
-  }
-
-  // 4. Momentum RSI Pasca Koreksi
-  if (taPrimary.rsi14 >= 38 && taPrimary.rsi14 <= 58) {
-    longScore += 15;
-    reasons.push(`RSI ${preset.timeframePrimary} Rebound Sehat (${taPrimary.rsi14.toFixed(1)})`);
-  } else if (taPrimary.rsi14 > 68) {
-    longScore -= 25; // Overbought, jangan beli
-  }
-
-  if (taPrimary.rsi14 >= 42 && taPrimary.rsi14 <= 62) {
-    shortScore += 15;
-    reasons.push(`RSI ${preset.timeframePrimary} Retest Sehat (${taPrimary.rsi14.toFixed(1)})`);
-  } else if (taPrimary.rsi14 < 32) {
-    shortScore -= 25; // Oversold, jangan short
-  }
-
-  // 5. Momentum MACD Timeframe Primer
-  if (taPrimary.macd.histogram > 0 || taPrimary.macd.macdLine > taPrimary.macd.signalLine) {
-    longScore += 10;
-    reasons.push(`MACD ${preset.timeframePrimary} Positif`);
-  }
-  if (taPrimary.macd.histogram < 0 || taPrimary.macd.macdLine < taPrimary.macd.signalLine) {
-    shortScore += 10;
-    reasons.push(`MACD ${preset.timeframePrimary} Negatif`);
-  }
-
-  // 6. Filter Sentimen Pasar
-  if (sentiment.isExtremeGreed) {
-    longScore -= 15;
-  }
-  if (sentiment.isExtremeFear) {
-    shortScore -= 15;
+  // Filter jika range per jam terlalu sempit (pasar mati/tidak ada likuiditas) atau terlalu liar
+  if (rangePercent < 0.15 || rangePercent > 6.0) {
+    return null;
   }
 
   const minScoreThreshold = 70;
+  let signal: {
+    side: "BUY" | "SELL";
+    positionSide: "LONG" | "SHORT";
+    score: number;
+    sl: number;
+    tp: number;
+    reasons: string[];
+  } | null = null;
 
-  // 7. Kalkulasi Stop Loss dengan Safety Bracket Sesuai Preset
-  let slDistance = atr * preset.atrMultiplierSl;
-  let slPercent = (slDistance / currentPrice) * 100;
+  // =========================================================================
+  // SETUP 1: LIQUIDITY SWEEP & REVERSAL (Core Edge dari Aggression + ORB)
+  // =========================================================================
 
-  // Bracket Bawah: Jarak SL minimal (misal 0.5% scalping / 1.5% daytrade)
-  if (slPercent < preset.minSlPercent) {
-    slDistance = currentPrice * (preset.minSlPercent / 100);
-    slPercent = preset.minSlPercent;
-    reasons.push(`SL diperlebar ke batas minimal ${preset.minSlPercent}%`);
+  // A. SHORT SETUP (Selling Absorption di pucuk OR High)
+  const sweptHigh = lastCandle.high >= orHigh || (prevCandle && prevCandle.high >= orHigh);
+  const hasSellingAbsorption =
+    aggression.type === "SELLING_ABSORPTION" ||
+    (prevAggression && prevAggression.type === "SELLING_ABSORPTION");
+  const isRejectedDown =
+    currentPrice <= orHigh * 1.002 && lastCandle.close < lastCandle.high;
+
+  if (sweptHigh && hasSellingAbsorption && isRejectedDown) {
+    const reasons: string[] = [
+      `Hourly ORB Sweep: Harga menyapu OR High ($${orHigh.toFixed(4)})`,
+      `Selling Absorption: Paus menyerap buy retail di ekor atas (Tier ${aggression.tier}, ScaledVol: ${aggression.scaledVol.toFixed(1)}x StDev)`,
+      `Target Reversal: OR Mid ($${orMid.toFixed(4)}) & OR Low ($${orLow.toFixed(4)})`,
+    ];
+
+    let score = 75;
+    if (aggression.tier === "E") score += 20;
+    else if (aggression.tier === "D") score += 15;
+    else if (aggression.tier === "C") score += 10;
+    else if (aggression.tier === "B") score += 5;
+
+    if (lastCandle.close < orHigh) score += 5; // Tutup kembali di bawah garis OR High
+    if (sentiment.isExtremeFear) score -= 15;
+    if (sentiment.isExtremeGreed) score += 10;
+
+    const swingHigh = Math.max(lastCandle.high, prevCandle ? prevCandle.high : lastCandle.high);
+    const sl = swingHigh + atr14 * 0.3;
+    const tp = orLow;
+
+    signal = {
+      side: "SELL",
+      positionSide: "SHORT",
+      score,
+      sl,
+      tp,
+      reasons,
+    };
   }
 
-  // Bracket Atas: Jika koin terlalu liar (jarak SL > maxSlPercent), batalkan sinyal
+  // B. LONG SETUP (Buying Absorption di dasar OR Low)
+  const sweptLow = lastCandle.low <= orLow || (prevCandle && prevCandle.low <= orLow);
+  const hasBuyingAbsorption =
+    aggression.type === "BUYING_ABSORPTION" ||
+    (prevAggression && prevAggression.type === "BUYING_ABSORPTION");
+  const isRejectedUp =
+    currentPrice >= orLow * 0.998 && lastCandle.close > lastCandle.low;
+
+  if (!signal && sweptLow && hasBuyingAbsorption && isRejectedUp) {
+    const reasons: string[] = [
+      `Hourly ORB Sweep: Harga menyapu OR Low ($${orLow.toFixed(4)})`,
+      `Buying Absorption: Paus menyerap sell retail di ekor bawah (Tier ${aggression.tier}, ScaledVol: ${aggression.scaledVol.toFixed(1)}x StDev)`,
+      `Target Reversal: OR Mid ($${orMid.toFixed(4)}) & OR High ($${orHigh.toFixed(4)})`,
+    ];
+
+    let score = 75;
+    if (aggression.tier === "E") score += 20;
+    else if (aggression.tier === "D") score += 15;
+    else if (aggression.tier === "C") score += 10;
+    else if (aggression.tier === "B") score += 5;
+
+    if (lastCandle.close > orLow) score += 5; // Tutup kembali di atas garis OR Low
+    if (sentiment.isExtremeGreed) score -= 15;
+    if (sentiment.isExtremeFear) score += 10;
+
+    const swingLow = Math.min(lastCandle.low, prevCandle ? prevCandle.low : lastCandle.low);
+    const sl = swingLow - atr14 * 0.3;
+    const tp = orHigh;
+
+    signal = {
+      side: "BUY",
+      positionSide: "LONG",
+      score,
+      sl,
+      tp,
+      reasons,
+    };
+  }
+
+  // =========================================================================
+  // SETUP 2: MOMENTUM BREAKOUT (Breakout Bersih tanpa Rejection)
+  // =========================================================================
+  if (!signal) {
+    const rangeHeight = orHigh - orLow;
+
+    // Breakout Bullish
+    if (
+      lastCandle.close > orHigh * 1.0005 &&
+      lastCandle.close > lastCandle.open &&
+      aggression.scaledVol >= preset.absorptionThreshold &&
+      !aggression.upperZone
+    ) {
+      const sl = Math.max(orMid, orHigh - atr14 * 1.2);
+      const tp = currentPrice + rangeHeight * 1.2;
+      signal = {
+        side: "BUY",
+        positionSide: "LONG",
+        score: 75,
+        sl,
+        tp,
+        reasons: [
+          `Hourly ORB Breakout: Penembusan valid di atas OR High ($${orHigh.toFixed(4)})`,
+          `Volume Expansion: Volume terkonfirmasi kuat (${aggression.scaledVol.toFixed(1)}x StDev)`,
+          `Target Expansion: $${tp.toFixed(4)}`,
+        ],
+      };
+    }
+    // Breakdown Bearish
+    else if (
+      lastCandle.close < orLow * 0.9995 &&
+      lastCandle.close < lastCandle.open &&
+      aggression.scaledVol >= preset.absorptionThreshold &&
+      !aggression.lowerZone
+    ) {
+      const sl = Math.min(orMid, orLow + atr14 * 1.2);
+      const tp = currentPrice - rangeHeight * 1.2;
+      signal = {
+        side: "SELL",
+        positionSide: "SHORT",
+        score: 75,
+        sl,
+        tp,
+        reasons: [
+          `Hourly ORB Breakdown: Penembusan valid di bawah OR Low ($${orLow.toFixed(4)})`,
+          `Volume Expansion: Volume terkonfirmasi kuat (${aggression.scaledVol.toFixed(1)}x StDev)`,
+          `Target Expansion: $${tp.toFixed(4)}`,
+        ],
+      };
+    }
+  }
+
+  if (!signal || signal.score < minScoreThreshold) {
+    return null;
+  }
+
+  // =========================================================================
+  // KALKULASI RISK MANAGEMENT & SAFETY BRACKET SL
+  // =========================================================================
+  let slDistance = Math.abs(currentPrice - signal.sl);
+  let slPercent = (slDistance / currentPrice) * 100;
+
+  // Bracket Bawah: Jarak SL minimal
+  if (slPercent < preset.minSlPercent) {
+    slDistance = currentPrice * (preset.minSlPercent / 100);
+    signal.sl =
+      signal.positionSide === "LONG"
+        ? currentPrice - slDistance
+        : currentPrice + slDistance;
+    slPercent = preset.minSlPercent;
+    signal.reasons.push(`SL diperlebar ke batas minimal ${preset.minSlPercent}%`);
+  }
+
+  // Bracket Atas: Jika jarak SL terlalu jauh dari batas maksimal preset, batalkan sinyal
   if (slPercent > preset.maxSlPercent) {
     return null;
   }
 
-  // Hitung callback rate dinamis berdasarkan rasio ATR terhadap harga koin
-  const rawCallback = (atr * preset.trailingAtrMultiplier) / currentPrice;
+  // Hitung callback rate dinamis berdasarkan rasio ATR
+  const rawCallback = (atr14 * preset.trailingAtrMultiplier) / currentPrice;
   const trailingCallbackRate = Math.min(
     Math.max(rawCallback, preset.trailingMinCallbackRate),
     preset.trailingMaxCallbackRate
   );
 
-  // Signal LONG
-  if (longScore >= minScoreThreshold && longScore > shortScore) {
-    const sl = currentPrice - slDistance;
-    const trailingActivationPrice = currentPrice + (slDistance * preset.trailingActivationR);
+  const trailingActivationPrice =
+    signal.positionSide === "LONG"
+      ? currentPrice + slDistance * preset.trailingActivationR
+      : currentPrice - slDistance * preset.trailingActivationR;
 
-    return {
-      symbol,
-      side: "BUY",
-      positionSide: "LONG",
-      score: longScore,
-      entryPrice: currentPrice,
-      stopLossPrice: sl,
-      takeProfitPrice: trailingActivationPrice,
-      trailingActivationPrice,
-      trailingCallbackRate,
-      atr,
-      riskRewardRatio: config.rrRatio,
-      reasons,
-    };
-  }
+  const riskRewardRatio =
+    Math.abs(signal.tp - currentPrice) / Math.max(slDistance, 0.000001);
 
-  // Signal SHORT
-  if (shortScore >= minScoreThreshold && shortScore > longScore) {
-    const sl = currentPrice + slDistance;
-    const trailingActivationPrice = currentPrice - (slDistance * preset.trailingActivationR);
-
-    return {
-      symbol,
-      side: "SELL",
-      positionSide: "SHORT",
-      score: shortScore,
-      entryPrice: currentPrice,
-      stopLossPrice: sl,
-      takeProfitPrice: trailingActivationPrice,
-      trailingActivationPrice,
-      trailingCallbackRate,
-      atr,
-      riskRewardRatio: config.rrRatio,
-      reasons,
-    };
-  }
-
-  return null;
+  return {
+    symbol,
+    side: signal.side,
+    positionSide: signal.positionSide,
+    score: signal.score,
+    entryPrice: currentPrice,
+    stopLossPrice: signal.sl,
+    takeProfitPrice: signal.tp,
+    trailingActivationPrice,
+    trailingCallbackRate,
+    atr: atr14,
+    riskRewardRatio,
+    reasons: signal.reasons,
+  };
 }

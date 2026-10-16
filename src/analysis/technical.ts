@@ -1,93 +1,44 @@
 import { KlineItem } from "../bingx/market.js";
 
+export type AggressionType = "BUYING_ABSORPTION" | "SELLING_ABSORPTION" | "NONE";
+export type AggressionTier = "A" | "B" | "C" | "D" | "E" | "NONE";
+
+export interface AggressionMark {
+  scaledVol: number;
+  isAbsorption: boolean;
+  type: AggressionType;
+  tier: AggressionTier;
+  upperZone: boolean;
+  lowerZone: boolean;
+  topBody: number;
+  lowBody: number;
+  midPrice: number;
+}
+
+export interface HourlyOrbData {
+  orHigh: number;
+  orLow: number;
+  orMid: number;
+  inOpeningRange: boolean;
+  hourStartBarTime: number;
+  barsFromHour: number;
+  isFormed: boolean;
+  rangePercent: number;
+}
+
 export interface TechnicalIndicators {
   currentPrice: number;
-  rsi14: number;
-  ema9: number;
-  ema21: number;
-  ema50: number;
-  ema200: number;
-  macd: {
-    macdLine: number;
-    signalLine: number;
-    histogram: number;
-  };
-  atr14: number;
-  bollingerBands: {
-    upper: number;
-    middle: number;
-    lower: number;
-  };
-  trend: "BULLISH" | "BEARISH" | "NEUTRAL";
   lastCandle: KlineItem;
   prevCandle: KlineItem;
-  recentLow3: number;
-  recentHigh3: number;
+  atr14: number;
+  orb: HourlyOrbData;
+  aggression: AggressionMark;
+  prevAggression?: AggressionMark;
+  volStdev: number;
 }
 
 /**
- * Menghitung Exponential Moving Average (EMA)
- */
-export function calculateEMA(values: number[], period: number): number[] {
-  if (values.length < period) return [];
-  const k = 2 / (period + 1);
-  const emaArray: number[] = [];
-
-  // Hitung SMA awal sebagai basis EMA pertama
-  let sum = 0;
-  for (let i = 0; i < period; i++) {
-    sum += values[i];
-  }
-  let currentEma = sum / period;
-  emaArray.push(currentEma);
-
-  for (let i = period; i < values.length; i++) {
-    currentEma = values[i] * k + currentEma * (1 - k);
-    emaArray.push(currentEma);
-  }
-
-  return emaArray;
-}
-
-/**
- * Menghitung Relative Strength Index (RSI Wilder 14)
- */
-export function calculateRSI(closes: number[], period = 14): number[] {
-  if (closes.length <= period) return [];
-
-  let gains = 0;
-  let losses = 0;
-
-  for (let i = 1; i <= period; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff >= 0) gains += diff;
-    else losses += Math.abs(diff);
-  }
-
-  let avgGain = gains / period;
-  let avgLoss = losses / period;
-
-  const rsiValues: number[] = [];
-  const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-  rsiValues.push(100 - 100 / (1 + rs));
-
-  for (let i = period + 1; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    const gain = diff > 0 ? diff : 0;
-    const loss = diff < 0 ? Math.abs(diff) : 0;
-
-    avgGain = (avgGain * (period - 1) + gain) / period;
-    avgLoss = (avgLoss * (period - 1) + loss) / period;
-
-    const currentRs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    rsiValues.push(100 - 100 / (1 + currentRs));
-  }
-
-  return rsiValues;
-}
-
-/**
- * Menghitung Average True Range (ATR 14)
+ * Menghitung Average True Range (ATR 14) untuk proteksi volatilitas dan jarak Stop Loss
  */
 export function calculateATR(klines: KlineItem[], period = 14): number[] {
   if (klines.length <= period) return [];
@@ -116,113 +67,189 @@ export function calculateATR(klines: KlineItem[], period = 14): number[] {
 }
 
 /**
- * Menghitung MACD (12, 26, 9)
+ * Menghitung Standar Deviasi Volume (lookback 100 candle)
  */
-export function calculateMACD(
-  closes: number[],
-  fastPeriod = 12,
-  slowPeriod = 26,
-  signalPeriod = 9
-): { macdLine: number; signalLine: number; histogram: number } {
-  const fastEma = calculateEMA(closes, fastPeriod);
-  const slowEma = calculateEMA(closes, slowPeriod);
+export function calculateVolumeStdev(volumes: number[], lookback = 100): number {
+  if (volumes.length < 5) return 0;
+  const slice = volumes.slice(Math.max(0, volumes.length - lookback));
+  const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+  const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / slice.length;
+  return Math.sqrt(variance);
+}
 
-  // Samakan panjang array
-  const offset = fastEma.length - slowEma.length;
-  const macdSeries: number[] = [];
-  for (let i = 0; i < slowEma.length; i++) {
-    macdSeries.push(fastEma[i + offset] - slowEma[i]);
+/**
+ * Deteksi Aggression Mark (Absorption Bubbles) berbasis rumus Pine Script:
+ * - volStdev = ta.stdev(volData, lookbackperiod)
+ * - scaledVol = volData / volStdev
+ * - midPrice = (high + low) / 2
+ * - upperZone = midPrice >= topBody and midPrice <= high  (Selling Absorption)
+ * - lowerZone = midPrice <= lowBody and midPrice >= low   (Buying Absorption)
+ */
+export function detectAggressionMark(
+  candle: KlineItem,
+  volStdev: number,
+  limitFactor = 1.5
+): AggressionMark {
+  const midPrice = (candle.high + candle.low) / 2;
+  const topBody = Math.max(candle.open, candle.close);
+  const lowBody = Math.min(candle.open, candle.close);
+
+  const upperZone = midPrice >= topBody && midPrice <= candle.high;
+  const lowerZone = midPrice <= lowBody && midPrice >= candle.low;
+
+  const scaledVol = volStdev > 0 ? candle.volume / volStdev : 0;
+
+  let tier: AggressionTier = "NONE";
+  let isAbsorption = false;
+
+  if (scaledVol >= limitFactor + 6) {
+    tier = "E"; // Huge
+    isAbsorption = true;
+  } else if (scaledVol >= limitFactor + 3) {
+    tier = "D"; // Large
+    isAbsorption = true;
+  } else if (scaledVol >= limitFactor + 2) {
+    tier = "C"; // Normal
+    isAbsorption = true;
+  } else if (scaledVol >= limitFactor + 1) {
+    tier = "B"; // Small
+    isAbsorption = true;
+  } else if (scaledVol >= limitFactor) {
+    tier = "A"; // Tiny
+    isAbsorption = true;
   }
 
-  const signalEma = calculateEMA(macdSeries, signalPeriod);
-  const lastMacd = macdSeries[macdSeries.length - 1] || 0;
-  const lastSignal = signalEma[signalEma.length - 1] || 0;
-  const lastHist = lastMacd - lastSignal;
+  let type: AggressionType = "NONE";
+  if (isAbsorption) {
+    if (upperZone) {
+      type = "SELLING_ABSORPTION"; // Retail buy agresif diserap oleh limit sell whale
+    } else if (lowerZone) {
+      type = "BUYING_ABSORPTION"; // Retail sell panik diserap oleh limit buy whale
+    }
+  }
 
   return {
-    macdLine: lastMacd,
-    signalLine: lastSignal,
-    histogram: lastHist,
+    scaledVol,
+    isAbsorption,
+    type,
+    tier,
+    upperZone,
+    lowerZone,
+    topBody,
+    lowBody,
+    midPrice,
   };
 }
 
 /**
- * Menghitung Bollinger Bands (20, 2)
+ * Menghitung Hourly Opening Range Breakout (Hourly ORB)
+ * Menentukan orHigh, orLow, dan orMid dari N menit pertama setiap jam (XX:00 - XX:05).
  */
-export function calculateBollingerBands(
-  closes: number[],
-  period = 20,
-  multiplier = 2
-): { upper: number; middle: number; lower: number } {
-  if (closes.length < period) return { upper: 0, middle: 0, lower: 0 };
+export function calculateHourlyORB(klines: KlineItem[], orbMinutes = 6): HourlyOrbData {
+  if (klines.length === 0) {
+    return {
+      orHigh: 0,
+      orLow: 0,
+      orMid: 0,
+      inOpeningRange: true,
+      hourStartBarTime: 0,
+      barsFromHour: 0,
+      isFormed: false,
+      rangePercent: 0,
+    };
+  }
 
-  const slice = closes.slice(closes.length - period);
-  const middle = slice.reduce((a, b) => a + b, 0) / period;
-  const variance = slice.reduce((a, b) => a + Math.pow(b - middle, 2), 0) / period;
-  const stdDev = Math.sqrt(variance);
+  const latestCandle = klines[klines.length - 1];
+  const latestTime = latestCandle.time;
+
+  // Tentukan timestamp awal jam berjalan (UTC)
+  const hourStartBarTime = Math.floor(latestTime / (60 * 60 * 1000)) * (60 * 60 * 1000);
+  const orbEndTime = hourStartBarTime + orbMinutes * 60 * 1000;
+
+  // Filter candle yang berada dalam rentang pembukaan jam ini (XX:00 s/d XX:orbMinutes)
+  const orbCandles = klines.filter(
+    (k) => k.time >= hourStartBarTime && k.time < orbEndTime
+  );
+
+  let orHigh = 0;
+  let orLow = Infinity;
+
+  if (orbCandles.length > 0) {
+    for (const c of orbCandles) {
+      if (c.high > orHigh) orHigh = c.high;
+      if (c.low < orLow) orLow = c.low;
+    }
+  } else {
+    // Fallback jika candle awal jam belum ada (misal bot baru fetch data tengah jam)
+    // Ambil candle pertama dalam jam ini
+    const hourCandles = klines.filter((k) => k.time >= hourStartBarTime);
+    if (hourCandles.length > 0) {
+      orHigh = hourCandles[0].high;
+      orLow = hourCandles[0].low;
+    } else {
+      orHigh = latestCandle.high;
+      orLow = latestCandle.low;
+    }
+  }
+
+  if (orLow === Infinity) orLow = latestCandle.low;
+
+  const orMid = (orHigh + orLow) / 2;
+  const inOpeningRange = latestTime < orbEndTime;
+  const barsFromHour = Math.floor((latestTime - hourStartBarTime) / (60 * 1000));
+  const isFormed = orbCandles.length >= 1 && orHigh > 0 && orLow > 0 && orHigh > orLow;
+  const rangePercent = orMid > 0 ? ((orHigh - orLow) / orMid) * 100 : 0;
 
   return {
-    upper: middle + multiplier * stdDev,
-    middle,
-    lower: middle - multiplier * stdDev,
+    orHigh,
+    orLow,
+    orMid,
+    inOpeningRange,
+    hourStartBarTime,
+    barsFromHour,
+    isFormed,
+    rangePercent,
   };
 }
 
 /**
- * Menghitung Ringkasan Indikator Lengkap untuk satu kumpulan Klines
+ * Menganalisis K-lines untuk menghasilkan indikator Aggression Mark + Hourly ORB
  */
-export function analyzeKlines(klines: KlineItem[]): TechnicalIndicators | null {
-  if (klines.length < 50) return null;
-
-  const closes = klines.map((k) => k.close);
-  const currentPrice = closes[closes.length - 1];
-
-  const ema9Arr = calculateEMA(closes, 9);
-  const ema21Arr = calculateEMA(closes, 21);
-  const ema50Arr = calculateEMA(closes, 50);
-  const ema200Arr = calculateEMA(closes, 200);
-
-  const rsiArr = calculateRSI(closes, 14);
-  const atrArr = calculateATR(klines, 14);
-  const macd = calculateMACD(closes);
-  const bb = calculateBollingerBands(closes);
-
-  const ema9 = ema9Arr[ema9Arr.length - 1] || currentPrice;
-  const ema21 = ema21Arr[ema21Arr.length - 1] || currentPrice;
-  const ema50 = ema50Arr[ema50Arr.length - 1] || currentPrice;
-  const ema200 = ema200Arr.length > 0 ? ema200Arr[ema200Arr.length - 1] : ema50;
-
-  const rsi14 = rsiArr[rsiArr.length - 1] || 50;
-  const atr14 = atrArr[atrArr.length - 1] || currentPrice * 0.01;
-
-  // Tentukan arah tren
-  let trend: "BULLISH" | "BEARISH" | "NEUTRAL" = "NEUTRAL";
-  if (currentPrice > ema50 && ema9 > ema21) {
-    trend = "BULLISH";
-  } else if (currentPrice < ema50 && ema9 < ema21) {
-    trend = "BEARISH";
-  }
+export function analyzeKlines(
+  klines: KlineItem[],
+  orbMinutes = 6,
+  limitFactor = 1.5,
+  lookback = 100
+): TechnicalIndicators | null {
+  if (klines.length < 20) return null;
 
   const lastCandle = klines[klines.length - 1];
   const prevCandle = klines[klines.length - 2] || lastCandle;
-  const recent3 = klines.slice(Math.max(0, klines.length - 3));
-  const recentLow3 = Math.min(...recent3.map((k) => k.low));
-  const recentHigh3 = Math.max(...recent3.map((k) => k.high));
+  const currentPrice = lastCandle.close;
+
+  // 1. Hitung ATR untuk SL/TP dinamis
+  const atrArr = calculateATR(klines, 14);
+  const atr14 = atrArr[atrArr.length - 1] || currentPrice * 0.01;
+
+  // 2. Hitung Standar Deviasi Volume
+  const volumes = klines.map((k) => k.volume);
+  const volStdev = calculateVolumeStdev(volumes, lookback);
+
+  // 3. Deteksi Aggression Mark pada candle terkini dan candle sebelumnya
+  const aggression = detectAggressionMark(lastCandle, volStdev, limitFactor);
+  const prevAggression = detectAggressionMark(prevCandle, volStdev, limitFactor);
+
+  // 4. Hitung Hourly ORB
+  const orb = calculateHourlyORB(klines, orbMinutes);
 
   return {
     currentPrice,
-    rsi14,
-    ema9,
-    ema21,
-    ema50,
-    ema200,
-    macd,
-    atr14,
-    bollingerBands: bb,
-    trend,
     lastCandle,
     prevCandle,
-    recentLow3,
-    recentHigh3,
+    atr14,
+    orb,
+    aggression,
+    prevAggression,
+    volStdev,
   };
 }

@@ -291,19 +291,21 @@ export async function checkPositions(): Promise<void> {
         if (managed.positionSide === "LONG") {
           const targetTrigger = managed.entryPrice + riskDistance * config.breakEvenTriggerR;
           if (markPrice >= targetTrigger) {
-            logger.trade(`Mengaktifkan Break-Even Stop untuk ${symbol} (LONG) pada harga ${markPrice}`);
+            // Buffer 0.12% untuk meng-cover biaya komisi taker (open 0.05% + close 0.05% + slippage)
+            const bePrice = Number((managed.entryPrice * 1.0012).toFixed(6));
+            logger.trade(`Mengaktifkan Break-Even Stop untuk ${symbol} (LONG) pada harga ${bePrice}`);
             try {
-              // Pasang SL baru di harga Entry
+              // Pasang SL baru di harga Entry + buffer fee
               await placeStopLossOrder({
                 symbol,
                 positionSide: "LONG",
                 quantity: managed.quantity,
-                stopPrice: managed.entryPrice,
+                stopPrice: bePrice,
               });
               managed.isBreakEvenApplied = true;
-              managed.currentSl = managed.entryPrice;
+              managed.currentSl = bePrice;
               storage.saveManagedPosition(managed);
-              await notifyBreakEvenActivated(symbol, "LONG", managed.entryPrice);
+              await notifyBreakEvenActivated(symbol, "LONG", bePrice);
             } catch (err) {
               logger.warn(`Gagal memindahkan SL ke Break-Even untuk ${symbol}:`, err);
             }
@@ -311,18 +313,20 @@ export async function checkPositions(): Promise<void> {
         } else if (managed.positionSide === "SHORT") {
           const targetTrigger = managed.entryPrice - riskDistance * config.breakEvenTriggerR;
           if (markPrice <= targetTrigger) {
-            logger.trade(`Mengaktifkan Break-Even Stop untuk ${symbol} (SHORT) pada harga ${markPrice}`);
+            // Buffer 0.12% untuk meng-cover biaya komisi taker
+            const bePrice = Number((managed.entryPrice * 0.9988).toFixed(6));
+            logger.trade(`Mengaktifkan Break-Even Stop untuk ${symbol} (SHORT) pada harga ${bePrice}`);
             try {
               await placeStopLossOrder({
                 symbol,
                 positionSide: "SHORT",
                 quantity: managed.quantity,
-                stopPrice: managed.entryPrice,
+                stopPrice: bePrice,
               });
               managed.isBreakEvenApplied = true;
-              managed.currentSl = managed.entryPrice;
+              managed.currentSl = bePrice;
               storage.saveManagedPosition(managed);
-              await notifyBreakEvenActivated(symbol, "SHORT", managed.entryPrice);
+              await notifyBreakEvenActivated(symbol, "SHORT", bePrice);
             } catch (err) {
               logger.warn(`Gagal memindahkan SL ke Break-Even untuk ${symbol}:`, err);
             }

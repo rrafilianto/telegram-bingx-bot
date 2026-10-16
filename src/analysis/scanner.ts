@@ -39,9 +39,15 @@ export async function runMarketScan(): Promise<TradeSignal[]> {
 
   for (const item of topCandidates) {
     try {
-      // 1. Ambil K-line timeframe eksekusi primer (misal 3m / 15m)
-      const klinesPrimary = await getKlines(item.symbol, preset.timeframePrimary, 80);
-      const taPrimary = analyzeKlines(klinesPrimary);
+      // 1. Ambil 120 K-line timeframe primer (cukup untuk lookback 100 volume stdev + range jam berjalan)
+      const klinesPrimary = await getKlines(item.symbol, preset.timeframePrimary, 120);
+      const taPrimary = analyzeKlines(
+        klinesPrimary,
+        preset.orbMinutes,
+        preset.absorptionThreshold,
+        preset.absorptionLookback
+      );
+
       if (!taPrimary) {
         await new Promise((r) => setTimeout(r, 200));
         continue;
@@ -50,9 +56,14 @@ export async function runMarketScan(): Promise<TradeSignal[]> {
       // Jeda 200ms sebelum request timeframe tren
       await new Promise((r) => setTimeout(r, 200));
 
-      // 2. Ambil K-line timeframe tren makro (misal 15m / 1h)
+      // 2. Ambil K-line timeframe tren makro
       const klinesTrend = await getKlines(item.symbol, preset.timeframeTrend, 60);
-      const taTrend = analyzeKlines(klinesTrend);
+      const taTrend = analyzeKlines(
+        klinesTrend,
+        preset.orbMinutes,
+        preset.absorptionThreshold,
+        preset.absorptionLookback
+      );
 
       const signal = evaluateStrategy(item.symbol, taPrimary, taTrend, sentiment);
 
@@ -63,7 +74,7 @@ export async function runMarketScan(): Promise<TradeSignal[]> {
         signals.push(signal);
       }
 
-      // Jeda 450ms antar token agar frekuensi request aman di bawah batas 2-3 req/s
+      // Jeda 450ms antar token agar frekuensi request aman di bawah batas rate limit
       await new Promise((r) => setTimeout(r, 450));
     } catch (err: any) {
       if (err?.message?.includes("100410")) {
